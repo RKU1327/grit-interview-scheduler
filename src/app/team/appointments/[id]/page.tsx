@@ -9,15 +9,15 @@ export const metadata: Metadata = { title: "Appointment" };
 
 export default async function TeamAppointmentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const db = getDb();
-  const detail = getAppointmentDetail(db, id);
+  const db = (await getDb());
+  const detail = (await getAppointmentDetail(db, id));
   if (!detail) notFound();
   return (
     <InterviewDetail
       db={db}
       detail={detail}
       role="team"
-      now={getNow(db)}
+      now={(await getNow(db))}
       back={{ href: "/team/appointments", label: "Appointments" }}
     />
   );

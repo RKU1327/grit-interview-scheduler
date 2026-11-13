@@ -29,11 +29,11 @@ export default async function BookPage({
   const { slug } = await params;
   const { reschedule } = await searchParams;
   const { student } = await getPersona();
-  const db = getDb();
-  const badge = db.select().from(trackBadges).where(eq(trackBadges.slug, slug)).get();
+  const db = (await getDb());
+  const badge = (await db.select().from(trackBadges).where(eq(trackBadges.slug, slug)).get());
   if (!badge) notFound();
-  const now = getNow(db);
-  const view = getStudentBadgeView(db, student.id, badge.id, now)!;
+  const now = (await getNow(db));
+  const view = (await getStudentBadgeView(db, student.id, badge.id, now))!;
   const back = { href: `/student/badges/${badge.slug}`, label: badge.name };
 
   const current = view.activeAppointment;
@@ -68,7 +68,7 @@ export default async function BookPage({
   const today = dayKey(now);
   const from = dayRange(today).start;
   const to = dayRange(shiftDay(today, DAYS_AHEAD)).start;
-  const slots = listOpenSlots(db, { from, to, now });
+  const slots = (await listOpenSlots(db, { from, to, now }));
   const days: PickerDay[] = Array.from({ length: DAYS_AHEAD }, (_, i) => {
     const key = shiftDay(today, i);
     const noon = zonedToUtc(key, "12:00");

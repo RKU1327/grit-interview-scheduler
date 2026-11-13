@@ -23,10 +23,10 @@ export type Slot = { interviewerId: string; interviewerName: string; startsAt: s
  * fixed-length slots aligned to the window start, minus slots that are in the
  * past / inside the lead time, or already held by a live appointment.
  */
-export function listOpenSlots(db: DbOrTx, input: { from: Date; to: Date; now: Date }): Slot[] {
+export async function listOpenSlots(db: DbOrTx, input: { from: Date; to: Date; now: Date }): Promise<Slot[]> {
   const fromIso = input.from.toISOString();
   const toIso = input.to.toISOString();
-  const windows = db
+  const windows = (await db
     .select({
       interviewerId: availabilityWindows.interviewerId,
       interviewerName: interviewers.name,
@@ -42,12 +42,12 @@ export function listOpenSlots(db: DbOrTx, input: { from: Date; to: Date; now: Da
         gt(availabilityWindows.endsAt, fromIso),
       ),
     )
-    .all();
-  const busy = db
+    .all());
+  const busy = (await db
     .select({ interviewerId: appointments.interviewerId, startsAt: appointments.startsAt, endsAt: appointments.endsAt })
     .from(appointments)
     .where(and(inArray(appointments.status, [...LIVE]), lt(appointments.startsAt, toIso), gt(appointments.endsAt, fromIso)))
-    .all();
+    .all());
   const earliest = input.now.getTime() + POLICY.bookingLeadMinutes * 60_000;
 
   const slots: Slot[] = [];
@@ -72,7 +72,7 @@ export function listOpenSlots(db: DbOrTx, input: { from: Date; to: Date; now: Da
 }
 
 /** Validate that a requested slot is real, future and free. Runs inside the write transaction. */
-function assertSlotBookable(
+async function assertSlotBookable(
   tx: Tx,
   input: { interviewerId: string; startsAt: string; studentId: string; now: Date; ignoreAppointmentId?: string },
 ) {
@@ -88,10 +88,10 @@ function assertSlotBookable(
       "SLOT_TOO_SOON",
       `Slots must be booked at least ${POLICY.bookingLeadMinutes} minutes before they start.`,
     );
-  const interviewer = tx.select().from(interviewers).where(eq(interviewers.id, input.interviewerId)).get();
+  const interviewer = (await tx.select().from(interviewers).where(eq(interviewers.id, input.interviewerId)).get());
   if (!interviewer || !interviewer.isActive) throw new DomainError("INVALID_SLOT", "That interviewer is not available.");
 
-  const window = tx
+  const window = (await tx
     .select()
     .from(availabilityWindows)
     .where(
@@ -101,7 +101,7 @@ function assertSlotBookable(
         sql`${availabilityWindows.endsAt} >= ${endIso}`,
       ),
     )
-    .get();
+    .get());
   if (!window || (start - Date.parse(window.startsAt)) % SLOT_MS !== 0)
     throw new DomainError(
       "SLOT_UNAVAILABLE",
@@ -109,7 +109,7 @@ function assertSlotBookable(
     );
 
   const ignore = input.ignoreAppointmentId ?? "";
-  const interviewerClash = tx
+  const interviewerClash = (await tx
     .select({ id: appointments.id })
     .from(appointments)
     .where(
@@ -121,11 +121,11 @@ function assertSlotBookable(
         ne(appointments.id, ignore),
       ),
     )
-    .get();
+    .get());
   if (interviewerClash)
     throw new DomainError("SLOT_TAKEN", "Someone just booked that slot. Please pick another time.");
 
-  const studentClash = tx
+  const studentClash = (await tx
     .select({ id: appointments.id })
     .from(appointments)
     .where(
@@ -137,7 +137,7 @@ function assertSlotBookable(
         ne(appointments.id, ignore),
       ),
     )
-    .get();
+    .get());
   if (studentClash)
     throw new DomainError("STUDENT_CONFLICT", "You already have another interview at that time.");
   return { interviewer, endIso };
@@ -150,7 +150,7 @@ export type BookResult = { appointmentId: string; attemptId: string; replayed: b
  * the slot, then inserts. Partial unique indexes are the final guard against a
  * racing writer; a violation is reported as SLOT_TAKEN / ALREADY_BOOKED.
  */
-export function bookAppointment(
+export async function bookAppointment(
   db: DbOrTx,
   input: {
     studentId: string;
@@ -161,31 +161,31 @@ export function bookAppointment(
     actor: Actor;
     now: Date;
   },
-): BookResult {
+): Promise<BookResult> {
   try {
-    return inTx(db, (tx) => {
+    return (await inTx(db, async (tx) => {
         if (input.idempotencyKey) {
-          const prior = tx
+          const prior = (await tx
             .select()
             .from(appointments)
             .where(eq(appointments.idempotencyKey, input.idempotencyKey))
-            .get();
+            .get());
           if (prior) return { appointmentId: prior.id, attemptId: prior.attemptId, replayed: true };
         }
-        const student = tx.select().from(students).where(eq(students.id, input.studentId)).get();
-        const badge = tx.select().from(trackBadges).where(eq(trackBadges.id, input.badgeId)).get();
+        const student = (await tx.select().from(students).where(eq(students.id, input.studentId)).get());
+        const badge = (await tx.select().from(trackBadges).where(eq(trackBadges.id, input.badgeId)).get());
         if (!student || !badge) throw new DomainError("NOT_FOUND", "Unknown student or badge.");
 
-        const ctx = loadBadgeContext(tx, student.id, badge.id, input.now);
+        const ctx = (await loadBadgeContext(tx, student.id, badge.id, input.now));
         if (!ctx.gate.allowed) throw new DomainError(ctx.gate.code, ctx.gate.reason);
-        const { interviewer, endIso } = assertSlotBookable(tx, { ...input, studentId: student.id });
+        const { interviewer, endIso } = (await assertSlotBookable(tx, { ...input, studentId: student.id }));
 
         const nowIso = input.now.toISOString();
         let attemptId = ctx.openAttempt?.id;
         if (!attemptId) {
           attemptId = newId("att");
           const attemptNo = (ctx.attempts.at(-1)?.attemptNo ?? 0) + 1;
-          tx.insert(interviewAttempts)
+          (await tx.insert(interviewAttempts)
             .values({
               id: attemptId,
               studentId: student.id,
@@ -194,14 +194,14 @@ export function bookAppointment(
               status: "awaiting_interview",
               openedAt: nowIso,
             })
-            .run();
+            .run());
           if (ctx.unusedGrant) {
-            tx.update(attemptGrants)
+            (await tx.update(attemptGrants)
               .set({ consumedByAttemptId: attemptId })
               .where(eq(attemptGrants.id, ctx.unusedGrant.id))
-              .run();
+              .run());
           }
-          audit(tx, {
+          (await audit(tx, {
             entityType: "attempt",
             entityId: attemptId,
             studentId: student.id,
@@ -212,11 +212,11 @@ export function bookAppointment(
             summary: `Attempt ${attemptNo} opened for ${badge.name}`,
             detail: { attemptNo, usedGrantId: ctx.unusedGrant?.id ?? null },
             at: input.now,
-          });
+          }));
         }
 
         const appointmentId = newId("apt");
-        tx.insert(appointments)
+        (await tx.insert(appointments)
           .values({
             id: appointmentId,
             attemptId,
@@ -230,8 +230,8 @@ export function bookAppointment(
             updatedAt: nowIso,
             idempotencyKey: input.idempotencyKey ?? null,
           })
-          .run();
-        audit(tx, {
+          .run());
+        (await audit(tx, {
           entityType: "appointment",
           entityId: appointmentId,
           studentId: student.id,
@@ -243,9 +243,9 @@ export function bookAppointment(
           summary: `Interview booked with ${interviewer.name} for ${fmtDateTime(input.startsAt)}`,
           detail: { interviewerId: interviewer.id, startsAt: input.startsAt, endsAt: endIso },
           at: input.now,
-        });
+        }));
         return { appointmentId, attemptId, replayed: false };
-      });
+      }));
   } catch (e) {
     if (isUniqueViolation(e)) {
       const msg = String((e as Error).message);
@@ -259,8 +259,8 @@ export function bookAppointment(
   }
 }
 
-function loadScheduled(tx: Tx, appointmentId: string) {
-  const appt = tx.select().from(appointments).where(eq(appointments.id, appointmentId)).get();
+async function loadScheduled(tx: Tx, appointmentId: string) {
+  const appt = (await tx.select().from(appointments).where(eq(appointments.id, appointmentId)).get());
   if (!appt) throw new DomainError("NOT_FOUND", "That appointment does not exist.");
   return appt;
 }
@@ -276,12 +276,12 @@ function assertActorMayTouch(appt: { studentId: string; interviewerId: string },
  * Cancel a scheduled appointment. The attempt stays open (no outcome was
  * recorded), so the student can book again. Replaying a cancel is a no-op.
  */
-export function cancelAppointment(
+export async function cancelAppointment(
   db: DbOrTx,
   input: { appointmentId: string; reason?: string; actor: Actor; now: Date },
-): { replayed: boolean } {
-  return inTx(db, (tx) => {
-      const appt = loadScheduled(tx, input.appointmentId);
+): Promise<{ replayed: boolean }> {
+  return (await inTx(db, async (tx) => {
+      const appt = (await loadScheduled(tx, input.appointmentId));
       assertActorMayTouch(appt, input.actor);
       if (appt.status === "cancelled") return { replayed: true };
       assertAppointmentTransition(appt.status, "cancelled");
@@ -291,11 +291,11 @@ export function cancelAppointment(
           `Interviews can be cancelled up to ${POLICY.changeCutoffMinutes / 60} hours before they start. Please contact the GRIT interview team.`,
         );
       const reason = input.reason?.trim() || null;
-      tx.update(appointments)
+      (await tx.update(appointments)
         .set({ status: "cancelled", closedBy: input.actor.role, closeReason: reason, updatedAt: input.now.toISOString() })
         .where(and(eq(appointments.id, appt.id), eq(appointments.status, "scheduled")))
-        .run();
-      audit(tx, {
+        .run());
+      (await audit(tx, {
         entityType: "appointment",
         entityId: appt.id,
         studentId: appt.studentId,
@@ -307,16 +307,16 @@ export function cancelAppointment(
         summary: `Interview on ${fmtDateTime(appt.startsAt)} cancelled by ${roleLabel(input.actor.role)}`,
         detail: { reason },
         at: input.now,
-      });
+      }));
       return { replayed: false };
-    });
+    }));
 }
 
 /**
  * Move a booking to a new slot. The original row is kept with status
  * `rescheduled`; a new row points back to it, so history is never lost.
  */
-export function rescheduleAppointment(
+export async function rescheduleAppointment(
   db: DbOrTx,
   input: {
     appointmentId: string;
@@ -326,18 +326,18 @@ export function rescheduleAppointment(
     actor: Actor;
     now: Date;
   },
-): BookResult {
+): Promise<BookResult> {
   try {
-    return inTx(db, (tx) => {
+    return (await inTx(db, async (tx) => {
         if (input.idempotencyKey) {
-          const prior = tx
+          const prior = (await tx
             .select()
             .from(appointments)
             .where(eq(appointments.idempotencyKey, input.idempotencyKey))
-            .get();
+            .get());
           if (prior) return { appointmentId: prior.id, attemptId: prior.attemptId, replayed: true };
         }
-        const old = loadScheduled(tx, input.appointmentId);
+        const old = (await loadScheduled(tx, input.appointmentId));
         assertActorMayTouch(old, input.actor);
         assertAppointmentTransition(old.status, "rescheduled");
         if (input.actor.role === "student") {
@@ -346,11 +346,11 @@ export function rescheduleAppointment(
               "CHANGE_WINDOW_CLOSED",
               `Interviews can be rescheduled up to ${POLICY.changeCutoffMinutes / 60} hours before they start. Please contact the GRIT interview team.`,
             );
-          const used = tx
+          const used = (await tx
             .select({ n: sql<number>`count(*)` })
             .from(appointments)
             .where(and(eq(appointments.attemptId, old.attemptId), eq(appointments.status, "rescheduled")))
-            .get();
+            .get());
           if ((used?.n ?? 0) >= POLICY.maxReschedulesPerAttempt)
             throw new DomainError(
               "RESCHEDULE_LIMIT",
@@ -360,20 +360,20 @@ export function rescheduleAppointment(
         if (old.interviewerId === input.interviewerId && old.startsAt === input.startsAt)
           throw new DomainError("SAME_SLOT", "That is your current slot. Choose a different time to reschedule.");
 
-        const { interviewer, endIso } = assertSlotBookable(tx, {
+        const { interviewer, endIso } = (await assertSlotBookable(tx, {
           interviewerId: input.interviewerId,
           startsAt: input.startsAt,
           studentId: old.studentId,
           now: input.now,
           ignoreAppointmentId: old.id,
-        });
+        }));
         const nowIso = input.now.toISOString();
-        tx.update(appointments)
+        (await tx.update(appointments)
           .set({ status: "rescheduled", closedBy: input.actor.role, updatedAt: nowIso })
           .where(eq(appointments.id, old.id))
-          .run();
+          .run());
         const appointmentId = newId("apt");
-        tx.insert(appointments)
+        (await tx.insert(appointments)
           .values({
             id: appointmentId,
             attemptId: old.attemptId,
@@ -388,8 +388,8 @@ export function rescheduleAppointment(
             rescheduledFromId: old.id,
             idempotencyKey: input.idempotencyKey ?? null,
           })
-          .run();
-        audit(tx, {
+          .run());
+        (await audit(tx, {
           entityType: "appointment",
           entityId: old.id,
           studentId: old.studentId,
@@ -401,8 +401,8 @@ export function rescheduleAppointment(
           summary: `Interview moved from ${fmtDateTime(old.startsAt)} to ${fmtDateTime(input.startsAt)} (${interviewer.name})`,
           detail: { replacedBy: appointmentId, from: old.startsAt, to: input.startsAt },
           at: input.now,
-        });
-        audit(tx, {
+        }));
+        (await audit(tx, {
           entityType: "appointment",
           entityId: appointmentId,
           studentId: old.studentId,
@@ -414,9 +414,9 @@ export function rescheduleAppointment(
           summary: `Replacement interview booked with ${interviewer.name} for ${fmtDateTime(input.startsAt)}`,
           detail: { rescheduledFrom: old.id },
           at: input.now,
-        });
+        }));
         return { appointmentId, attemptId: old.attemptId, replayed: false };
-      });
+      }));
   } catch (e) {
     if (isUniqueViolation(e))
       throw new DomainError("SLOT_TAKEN", "Someone just booked that slot. Please pick another time.");
@@ -425,19 +425,19 @@ export function rescheduleAppointment(
 }
 
 /** Interviewer confirms the interview happened: appointment -> completed, attempt -> awaiting_outcome. */
-export function markConducted(db: DbOrTx, input: { appointmentId: string; actor: Actor; now: Date }): { replayed: boolean } {
-  return inTx(db, (tx) => {
-      const appt = loadScheduled(tx, input.appointmentId);
+export async function markConducted(db: DbOrTx, input: { appointmentId: string; actor: Actor; now: Date }): Promise<{ replayed: boolean }> {
+  return (await inTx(db, async (tx) => {
+      const appt = (await loadScheduled(tx, input.appointmentId));
       assertActorMayTouch(appt, input.actor);
       if (input.actor.role === "student") throw new DomainError("FORBIDDEN", "Students cannot update interview status.");
       if (appt.status === "completed") return { replayed: true };
-      completeAppointment(tx, appt, input.actor, input.now);
+      (await completeAppointment(tx, appt, input.actor, input.now));
       return { replayed: false };
-    });
+    }));
 }
 
 /** Shared by markConducted and recordOutcome. Caller must hold the transaction. */
-export function completeAppointment(
+export async function completeAppointment(
   tx: Tx,
   appt: typeof appointments.$inferSelect,
   actor: Actor,
@@ -446,13 +446,13 @@ export function completeAppointment(
   assertAppointmentTransition(appt.status, "completed");
   if (now < new Date(appt.startsAt))
     throw new DomainError("TOO_EARLY", "This interview has not started yet, so it cannot be marked as conducted.");
-  const attempt = tx.select().from(interviewAttempts).where(eq(interviewAttempts.id, appt.attemptId)).get();
+  const attempt = (await tx.select().from(interviewAttempts).where(eq(interviewAttempts.id, appt.attemptId)).get());
   if (!attempt) throw new DomainError("NOT_FOUND", "Attempt not found.");
   assertAttemptTransition(attempt.status, "awaiting_outcome");
   const nowIso = now.toISOString();
-  tx.update(appointments).set({ status: "completed", updatedAt: nowIso }).where(eq(appointments.id, appt.id)).run();
-  tx.update(interviewAttempts).set({ status: "awaiting_outcome" }).where(eq(interviewAttempts.id, attempt.id)).run();
-  audit(tx, {
+  (await tx.update(appointments).set({ status: "completed", updatedAt: nowIso }).where(eq(appointments.id, appt.id)).run());
+  (await tx.update(interviewAttempts).set({ status: "awaiting_outcome" }).where(eq(interviewAttempts.id, attempt.id)).run());
+  (await audit(tx, {
     entityType: "appointment",
     entityId: appt.id,
     studentId: appt.studentId,
@@ -463,8 +463,8 @@ export function completeAppointment(
     actor,
     summary: "Interview marked as conducted",
     at: now,
-  });
-  audit(tx, {
+  }));
+  (await audit(tx, {
     entityType: "attempt",
     entityId: attempt.id,
     studentId: appt.studentId,
@@ -475,7 +475,7 @@ export function completeAppointment(
     actor,
     summary: `Attempt ${attempt.attemptNo} is awaiting its outcome`,
     at: now,
-  });
+  }));
 }
 
 /**
@@ -483,12 +483,12 @@ export function completeAppointment(
  * The appointment is closed, the attempt stays open and the student may book
  * again. Student no-shows remain visible to the interview team.
  */
-export function markAbsence(
+export async function markAbsence(
   db: DbOrTx,
   input: { appointmentId: string; kind: "no_show" | "interviewer_absent"; note?: string; actor: Actor; now: Date },
-): { replayed: boolean } {
-  return inTx(db, (tx) => {
-      const appt = loadScheduled(tx, input.appointmentId);
+): Promise<{ replayed: boolean }> {
+  return (await inTx(db, async (tx) => {
+      const appt = (await loadScheduled(tx, input.appointmentId));
       assertActorMayTouch(appt, input.actor);
       if (input.actor.role === "student") throw new DomainError("FORBIDDEN", "Students cannot record attendance.");
       if (input.kind === "interviewer_absent" && input.actor.role !== "team")
@@ -501,7 +501,7 @@ export function markAbsence(
           "TOO_EARLY",
           `Attendance can be recorded ${POLICY.noShowGraceMinutes} minutes after the scheduled start.`,
         );
-      tx.update(appointments)
+      (await tx.update(appointments)
         .set({
           status: input.kind,
           closedBy: input.actor.role,
@@ -509,8 +509,8 @@ export function markAbsence(
           updatedAt: input.now.toISOString(),
         })
         .where(eq(appointments.id, appt.id))
-        .run();
-      audit(tx, {
+        .run());
+      (await audit(tx, {
         entityType: "appointment",
         entityId: appt.id,
         studentId: appt.studentId,
@@ -525,17 +525,17 @@ export function markAbsence(
             : "Interviewer did not attend - attempt left open for re-booking",
         detail: { note: input.note?.trim() || null },
         at: input.now,
-      });
+      }));
       return { replayed: false };
-    });
+    }));
 }
 
 export const roleLabel = (role: Actor["role"]) =>
   ({ student: "the student", interviewer: "the interviewer", team: "the interview team", system: "the system" })[role];
 
 /** Scheduled appointments of one interviewer inside [from, to), soonest first. */
-export function scheduledBetween(tx: DbOrTx, interviewerId: string, fromIso: string, toIso: string) {
-  return tx
+export async function scheduledBetween(tx: DbOrTx, interviewerId: string, fromIso: string, toIso: string) {
+  return (await tx
     .select()
     .from(appointments)
     .where(
@@ -547,5 +547,5 @@ export function scheduledBetween(tx: DbOrTx, interviewerId: string, fromIso: str
       ),
     )
     .orderBy(asc(appointments.startsAt))
-    .all();
+    .all());
 }

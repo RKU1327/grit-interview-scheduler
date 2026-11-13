@@ -1,5 +1,8 @@
 import { databasePath, openDatabase } from "@/db";
 
-// openDatabase applies every pending migration in ./drizzle.
-openDatabase(databasePath());
-console.log(`Migrations applied to ${databasePath()}`);
+async function main() {
+  const db = await openDatabase(databasePath());
+  db.$client.close();
+  console.log(`Migrations applied to ${databasePath()}`);
+}
+main().catch((error) => { console.error(error); process.exitCode = 1; });

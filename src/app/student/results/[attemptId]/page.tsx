@@ -31,10 +31,10 @@ const NEXT_STEPS = {
 export default async function ResultPage({ params }: { params: Promise<{ attemptId: string }> }) {
   const { attemptId } = await params;
   const { student } = await getPersona();
-  const db = getDb();
-  const now = getNow(db);
+  const db = (await getDb());
+  const now = (await getNow(db));
   // Looking the attempt up through the student's own views doubles as the ownership check.
-  const view = getStudentBadgeViews(db, student.id, now).find((v) => v.attempts.some((a) => a.id === attemptId));
+  const view = (await getStudentBadgeViews(db, student.id, now)).find((v) => v.attempts.some((a) => a.id === attemptId));
   const attempt = view?.attempts.find((a) => a.id === attemptId);
   if (!view || !attempt) notFound();
 

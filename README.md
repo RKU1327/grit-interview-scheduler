@@ -21,6 +21,14 @@ npm run dev
 
 Open <http://localhost:3000>. That is all: on the first request the app creates `data/grit.db`, applies the migrations and seeds the demo data. No environment variables, accounts, API keys or external services are needed.
 
+The demo data and demo clock are shared by everyone using the same database. A reset affects all visitors and is explicitly confirmed in the guided demo.
+
+### Turso and Vercel
+
+The app uses async Drizzle/libSQL for both local SQLite and hosted Turso. To initialize a new hosted database, set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in your shell and run `npm run db:turso-setup`. This applies the checked-in migrations and seeds only a completely empty database; it never resets an existing database. Configure the same variables as server-only production environment variables on Vercel. Do not commit them or use `NEXT_PUBLIC_` prefixes. A hosted runtime never migrates or seeds on startup. Preview deployments should use a separate database and token.
+
+The production demo is a shared, fictional prototype: visitors can change each other's records and clock, and an explicit reset affects everyone. The persona switcher is not authentication. Seeded availability covers the days immediately after initialization or reset; use the guided reset to refresh those dates.
+
 To explore, open **Guided demo** in the dark bar at the top (<http://localhost:3000/demo>). It lists eight steps that walk the whole workflow and has the **Reset demo data** button.
 
 ## Deliverables
@@ -128,7 +136,8 @@ These are assumptions made so the workflow is demonstrable. They live in one fil
 src/
   db/
     schema.ts        Drizzle schema: 16 tables, checks, partial unique indexes
-    index.ts         Connection, pragmas, migrate-on-open, seed-if-empty
+    index.ts         Async local and hosted libSQL connections
+    turso-setup.ts   Explicit hosted migration, initialization and shared reset
     seed-data.ts     Demo fixtures, created by calling the real services
   domain/            Framework-free business logic (unit + integration tested)
     policy.ts        Constants, state machines, booking gate, journey projection
@@ -160,7 +169,7 @@ Key points:
 ### Decisions worth explaining
 
 - **Dynamic rendering.** `create-next-app` now enables Cache Components by default. Every screen here is live per-persona data, where stale output would be a correctness bug, so I turned it off and render dynamically.
-- **better-sqlite3.** Synchronous, in-process SQLite makes the transaction code short and easy to verify. Version 13 bundles prebuilt binaries for Windows, macOS and Linux inside the package. `.npmrc` sets `ignore-scripts=true` because npm otherwise tries to compile it with node-gyp when installing from the lockfile, which fails without a C++ toolchain; no dependency here needs an install script.
+- **libSQL.** The same async Drizzle services work against a local database in development and a hosted Turso database in production. Write transactions acquire the database writer lock before validating and changing records. A reset prepares fixtures locally, then replaces shared data in one database batch.
 - **shadcn/ui (Base UI flavour).** Dialogs, buttons, inputs and toasts come from shadcn/ui. Simple filters and pickers use native controls for keyboard and screen-reader behaviour.
 - **SQLite limits.** There is no range-exclusion constraint, so "no overlapping bookings" relies on fixed 30-minute slots, a unique index on (interviewer, start), and SQLite's single writer. On Postgres I would use an exclusion constraint.
 
@@ -173,7 +182,7 @@ Key points:
 | TypeScript (strict) | 5.x |
 | Tailwind CSS | 4.3 |
 | shadcn/ui on Base UI, Lucide icons, Sonner toasts | shadcn 4.x |
-| SQLite via better-sqlite3 | 13.x |
+| SQLite / Turso via @libsql/client | 0.18 |
 | Drizzle ORM / drizzle-kit | 0.45 / 0.31 |
 | date-fns + date-fns-tz | 4.x / 3.x |
 | Vitest, Playwright | 5.x / 1.65 |
@@ -189,6 +198,7 @@ Exact versions are pinned in `package-lock.json`.
 | `npm run db:migrate` | Apply migrations to `data/grit.db` |
 | `npm run db:seed` | Wipe and re-seed the demo data |
 | `npm run db:setup` | Migrate, then seed |
+| `npm run db:turso-setup` | Explicitly migrate and initialize an empty Turso database |
 | `npm run db:generate` | Regenerate SQL migrations after a schema change |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | `tsc --noEmit` |

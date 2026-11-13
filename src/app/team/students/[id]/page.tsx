@@ -18,12 +18,12 @@ export const metadata: Metadata = { title: "Student record" };
 
 export default async function TeamStudentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const db = getDb();
-  const student = db.select().from(students).where(eq(students.id, id)).get();
+  const db = (await getDb());
+  const student = (await db.select().from(students).where(eq(students.id, id)).get());
   if (!student) notFound();
-  const now = getNow(db);
-  const views = getStudentBadgeViews(db, student.id, now);
-  const events = listAudit(db, { studentId: student.id });
+  const now = (await getNow(db));
+  const views = (await getStudentBadgeViews(db, student.id, now));
+  const events = (await listAudit(db, { studentId: student.id }));
 
   return (
     <div data-testid="team-student">

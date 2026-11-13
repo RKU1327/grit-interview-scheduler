@@ -6,7 +6,7 @@ import { listAudit } from "@/domain/queries";
 export const metadata: Metadata = { title: "Activity" };
 
 export default async function ActivityPage() {
-  const events = listAudit(getDb(), { limit: 150 });
+  const events = (await listAudit((await getDb()), { limit: 150 }));
   return (
     <>
       <PageHeader

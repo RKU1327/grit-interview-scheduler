@@ -43,12 +43,12 @@ export default async function PreviewPage({
   const sp = await searchParams;
   const state = (AFTER_STATES.includes(sp.state as JourneyState) ? sp.state : "eligible_unbooked") as JourneyState;
   const screen = sp.screen === "badge" ? "badge" : "home";
-  const db = getDb();
-  const now = getNow(db);
+  const db = (await getDb());
+  const now = (await getNow(db));
 
   const examples = new Map<JourneyState, Example>();
-  for (const student of db.select().from(students).orderBy(asc(students.id)).all()) {
-    const views = getStudentBadgeViews(db, student.id, now);
+  for (const student of (await db.select().from(students).orderBy(asc(students.id)).all())) {
+    const views = (await getStudentBadgeViews(db, student.id, now));
     // A student represents the most advanced state among their badges.
     const focus = [...views].sort((a, b) => RANK.indexOf(a.journey) - RANK.indexOf(b.journey))[0];
     if (!focus) continue;

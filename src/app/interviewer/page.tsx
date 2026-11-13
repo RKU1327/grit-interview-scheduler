@@ -21,18 +21,18 @@ export const metadata: Metadata = { title: "Schedule" };
 export default async function SchedulePage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   const { date } = await searchParams;
   const { interviewer } = await getPersona();
-  const db = getDb();
-  const now = getNow(db);
+  const db = (await getDb());
+  const now = (await getNow(db));
   const today = dayKey(now);
   const day = isDayKey(date) ? date : today;
   const { start, end } = dayRange(day);
 
-  const schedule = getDaySchedule(db, interviewer.id, day);
-  const windows = listWindows(db, interviewer.id, start.toISOString(), end.toISOString());
-  const freeSlots = listOpenSlots(db, { from: start, to: end, now }).filter((s) => s.interviewerId === interviewer.id).length;
+  const schedule = (await getDaySchedule(db, interviewer.id, day));
+  const windows = (await listWindows(db, interviewer.id, start.toISOString(), end.toISOString()));
+  const freeSlots = (await listOpenSlots(db, { from: start, to: end, now })).filter((s) => s.interviewerId === interviewer.id).length;
 
   // Anything of mine that happened but has no result yet, whatever the date.
-  const pending = listAppointments(
+  const pending = (await listAppointments(
     db,
     and(
       eq(appointments.interviewerId, interviewer.id),
@@ -41,19 +41,19 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
         and(eq(appointments.status, "completed"), eq(interviewAttempts.status, "awaiting_outcome")),
       ),
     ),
-  );
+  ));
 
   // Week strip: the selected day in the middle of a 7-day window, with live interview counts.
   const stripStart = shiftDay(day, -3);
   const stripRange = { from: dayRange(stripStart).start, to: dayRange(shiftDay(stripStart, 7)).start };
-  const stripAppts = listAppointments(
+  const stripAppts = (await listAppointments(
     db,
     and(
       eq(appointments.interviewerId, interviewer.id),
       gte(appointments.startsAt, stripRange.from.toISOString()),
       lt(appointments.startsAt, stripRange.to.toISOString()),
     ),
-  ).filter((a) => a.status === "scheduled" || a.status === "completed");
+  )).filter((a) => a.status === "scheduled" || a.status === "completed");
   const strip = Array.from({ length: 7 }, (_, i) => {
     const key = shiftDay(stripStart, i);
     const noon = zonedToUtc(key, "12:00");
@@ -64,10 +64,10 @@ export default async function SchedulePage({ searchParams }: { searchParams: Pro
       count: stripAppts.filter((a) => dayKey(a.startsAt) === key).length,
     };
   });
-  const next = listAppointments(
+  const next = (await listAppointments(
     db,
     and(eq(appointments.interviewerId, interviewer.id), eq(appointments.status, "scheduled"), gte(appointments.startsAt, now.toISOString())),
-  )[0];
+  ))[0];
 
   return (
     <>

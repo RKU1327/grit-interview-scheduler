@@ -15,13 +15,13 @@ const HORIZON_DAYS = 21;
 
 export default async function AvailabilityPage() {
   const { interviewer } = await getPersona();
-  const db = getDb();
-  const now = getNow(db);
+  const db = (await getDb());
+  const now = (await getNow(db));
   const today = dayKey(now);
   const from = now.toISOString();
   const to = dayRange(shiftDay(today, HORIZON_DAYS)).start.toISOString();
 
-  const rows: WindowRow[] = listWindows(db, interviewer.id, from, to).map((w) => ({
+  const rows: WindowRow[] = await Promise.all((await listWindows(db, interviewer.id, from, to)).map(async (w) => ({
     id: w.id,
     day: dayKey(w.startsAt),
     dayLabel: fmtDateLong(w.startsAt),
@@ -29,9 +29,9 @@ export default async function AvailabilityPage() {
     endHm: fmtHm(w.endsAt),
     rangeLabel: fmtRange(w.startsAt, w.endsAt),
     slots: Math.round((Date.parse(w.endsAt) - Date.parse(w.startsAt)) / (POLICY.slotMinutes * 60_000)),
-    booked: scheduledBetween(db, interviewer.id, w.startsAt, w.endsAt).length,
+    booked: (await scheduledBetween(db, interviewer.id, w.startsAt, w.endsAt)).length,
     inProgress: new Date(w.startsAt) <= now,
-  }));
+  })));
 
   return (
     <>

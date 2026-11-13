@@ -12,9 +12,9 @@ import { cn } from "@/lib/utils";
 export const metadata: Metadata = { title: "Overview" };
 
 export default async function TeamOverviewPage() {
-  const db = getDb();
-  const now = getNow(db);
-  const o = getOverview(db, now);
+  const db = (await getDb());
+  const now = (await getNow(db));
+  const o = (await getOverview(db, now));
   const tiles: { label: string; value: number; hint: string; href: string; testId: string; warn?: boolean }[] = [
     { label: "Eligible students", value: o.eligible, hint: "Cleared every required skill", href: "/team/roster", testId: "stat-eligible" },
     { label: "Not booked", value: o.unbooked, hint: "Eligible, no interview booked", href: "/team/roster?state=eligible_unbooked", testId: "stat-unbooked", warn: o.unbooked > 0 },

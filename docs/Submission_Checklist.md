@@ -2,7 +2,7 @@
 
 NIAT GRIT · AI Product Engineer assignment, Round 1 · Rahul Upadhyay · deadline 14 November 2026.
 
-Status as of 12 November 2026. "Done" means built and verified as described; anything not done says so.
+Status as of 13 November 2026. "Done" means built and verified as described; anything not done says so.
 
 ## Required deliverables
 
@@ -19,7 +19,7 @@ Status as of 12 November 2026. "Done" means built and verified as described; any
 | Item | Value |
 | --- | --- |
 | Source repository | <https://github.com/RKU1327/grit-interview-scheduler> |
-| Live deployment | **None.** The app is not deployed. It uses a local SQLite file, which serverless hosts do not persist; hosting it would need a Postgres port or a host with a persistent disk. |
+| Live deployment | Pending Vercel deployment and public verification. |
 | Loom recording | **Not recorded yet.** Add the link here once it exists. |
 
 ## What was verified, and how
@@ -28,7 +28,7 @@ Status as of 12 November 2026. "Done" means built and verified as described; any
 | --- | --- |
 | `npm run lint` | Passes, no warnings |
 | `npm run typecheck` (TypeScript strict) | Passes |
-| `npm test` | 64 unit and integration tests pass |
+| `npm test` | 70 unit and integration tests, including a two-process booking race and libSQL initialization/reset checks |
 | `npm run build` | Production build succeeds, 19 routes |
 | `npm run test:e2e` | 10 Playwright tests pass against a production build (last run before two housekeeping commits that removed unused UI files and added `.npmrc`; lint, typecheck, unit tests and build were re-run after them) |
 | Seeded fixtures match dashboard numbers | Asserted in an integration test and an e2e test |
@@ -68,7 +68,7 @@ Status as of 12 November 2026. "Done" means built and verified as described; any
 - **Outcome corrections are limited** to the latest attempt, and a pass can only be removed by nullification.
 - **Tier ordering and Miles are not modelled.** Eligibility means "all required skills cleared".
 - **Demo clock is global and forward-only.** It exists so a freshly booked interview can be completed in one sitting; "Reset demo data" returns it to real time.
-- **SQLite concurrency.** One Node process and SQLite's single writer make the booking transaction safe. A multi-instance deployment would need Postgres and an exclusion constraint.
+- **SQLite concurrency.** Turso serializes write transactions; partial unique indexes and transaction-time overlap checks guard booking conflicts.
 - **Accessibility** was checked for labels, keyboard operation and focus states, not audited against WCAG with assistive technology.
 
 ## Still to do before submitting

@@ -12,6 +12,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:setup": "npm run db:migrate && npm run db:seed",
+    "db:turso-setup": "tsx scripts/turso-setup.ts",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "docs:pdf": "node scripts/build-writeup.mjs",
@@ -21,7 +22,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
-    "better-sqlite3": "^13.1.1",
+    "@libsql/client": "^0.18.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.5.2",
     "date-fns": "^4.4.0",
@@ -39,7 +40,6 @@
   "devDependencies": {
     "@playwright/test": "^1.65.0",
     "@tailwindcss/turbopack": "4.3.3",
-    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24.19.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",

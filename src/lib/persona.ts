@@ -30,15 +30,15 @@ export async function getPersona() {
   } catch {
     stored = {};
   }
-  const db = getDb();
+  const db = (await getDb());
   const student =
-    (stored.studentId && db.select().from(students).where(eq(students.id, stored.studentId)).get()) ||
-    db.select().from(students).where(eq(students.id, DEFAULT_STUDENT_ID)).get() ||
-    db.select().from(students).get()!;
+    (stored.studentId && (await db.select().from(students).where(eq(students.id, stored.studentId)).get())) ||
+    (await db.select().from(students).where(eq(students.id, DEFAULT_STUDENT_ID)).get()) ||
+    (await db.select().from(students).get())!;
   const interviewer =
-    (stored.interviewerId && db.select().from(interviewers).where(eq(interviewers.id, stored.interviewerId)).get()) ||
-    db.select().from(interviewers).where(eq(interviewers.id, DEFAULT_INTERVIEWER_ID)).get() ||
-    db.select().from(interviewers).get()!;
+    (stored.interviewerId && (await db.select().from(interviewers).where(eq(interviewers.id, stored.interviewerId)).get())) ||
+    (await db.select().from(interviewers).where(eq(interviewers.id, DEFAULT_INTERVIEWER_ID)).get()) ||
+    (await db.select().from(interviewers).get())!;
   const role: Role = ROLES.includes(stored.role as Role) ? (stored.role as Role) : "student";
   const actor: Actor =
     role === "student"

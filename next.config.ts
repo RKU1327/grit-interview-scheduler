@@ -5,7 +5,7 @@ import type { NextConfig } from "next";
 // create-next-app defaults) are intentionally left off: there is nothing
 // static worth prerendering and stale booking state would be a correctness bug.
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["better-sqlite3"],
+  outputFileTracingIncludes: { "/*": ["./drizzle/**/*"] },
   turbopack: {
     rules: {
       "*.css": {

@@ -13,8 +13,8 @@ export const metadata: Metadata = { title: "Interview" };
 export default async function InterviewPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { interviewer } = await getPersona();
-  const db = getDb();
-  const detail = getAppointmentDetail(db, id);
+  const db = (await getDb());
+  const detail = (await getAppointmentDetail(db, id));
   // An interviewer can only open interviews assigned to them.
   if (!detail || detail.appt.interviewerId !== interviewer.id) notFound();
   return (
@@ -24,7 +24,7 @@ export default async function InterviewPage({ params }: { params: Promise<{ id: 
         db={db}
         detail={detail}
         role="interviewer"
-        now={getNow(db)}
+        now={(await getNow(db))}
         back={{ href: `/interviewer?date=${dayKey(detail.appt.startsAt)}`, label: "Schedule" }}
       />
     </>

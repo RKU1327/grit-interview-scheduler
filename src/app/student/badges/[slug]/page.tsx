@@ -14,11 +14,11 @@ export const metadata: Metadata = { title: "Badge" };
 export default async function BadgePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const { student } = await getPersona();
-  const db = getDb();
-  const badge = db.select().from(trackBadges).where(eq(trackBadges.slug, slug)).get();
+  const db = (await getDb());
+  const badge = (await db.select().from(trackBadges).where(eq(trackBadges.slug, slug)).get());
   if (!badge) notFound();
-  const now = getNow(db);
-  const view = getStudentBadgeView(db, student.id, badge.id, now)!;
+  const now = (await getNow(db));
+  const view = (await getStudentBadgeView(db, student.id, badge.id, now))!;
   return (
     <>
       <AutoRefresh seconds={30} />

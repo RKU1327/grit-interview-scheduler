@@ -25,22 +25,22 @@ export const newId = (prefix: string) => `${prefix}_${randomUUID().replace(/-/g,
 
 const CLOCK_KEY = "clock_offset_ms";
 
-export function getClockOffsetMs(db: DbOrTx): number {
-  const row = db.select().from(appMeta).where(eq(appMeta.key, CLOCK_KEY)).get();
+export async function getClockOffsetMs(db: DbOrTx): Promise<number> {
+  const row = (await db.select().from(appMeta).where(eq(appMeta.key, CLOCK_KEY)).get());
   const n = row ? Number(row.value) : 0;
   return Number.isFinite(n) ? n : 0;
 }
 
 /** "Now" for every rule in the app. Real time plus the demo clock offset. */
-export function getNow(db: DbOrTx): Date {
-  return new Date(Date.now() + getClockOffsetMs(db));
+export async function getNow(db: DbOrTx): Promise<Date> {
+  return new Date(Date.now() + (await getClockOffsetMs(db)));
 }
 
-export function setClockOffsetMs(db: DbOrTx, ms: number) {
-  db.insert(appMeta)
+export async function setClockOffsetMs(db: DbOrTx, ms: number) {
+  (await db.insert(appMeta)
     .values({ key: CLOCK_KEY, value: String(Math.round(ms)) })
     .onConflictDoUpdate({ target: appMeta.key, set: { value: String(Math.round(ms)) } })
-    .run();
+    .run());
 }
 
 // ---------------------------------------------------------------- audit trail
@@ -59,8 +59,8 @@ export type AuditInput = {
   at: Date;
 };
 
-export function audit(tx: DbOrTx, e: AuditInput) {
-  tx.insert(auditEvents)
+export async function audit(tx: DbOrTx, e: AuditInput) {
+  (await tx.insert(auditEvents)
     .values({
       id: newId("evt"),
       entityType: e.entityType,
@@ -77,46 +77,46 @@ export function audit(tx: DbOrTx, e: AuditInput) {
       detail: e.detail ? JSON.stringify(e.detail) : null,
       createdAt: e.at.toISOString(),
     })
-    .run();
+    .run());
 }
 
 // ---------------------------------------------------------------- badge context
 
 /** Everything needed to decide what a student may do for one badge. */
-export function loadBadgeContext(tx: DbOrTx, studentId: string, badgeId: string, now: Date) {
-  const required = tx
+export async function loadBadgeContext(tx: DbOrTx, studentId: string, badgeId: string, now: Date) {
+  const required = (await tx
     .select({ id: skills.id, code: skills.code, name: skills.name })
     .from(badgeSkillRequirements)
     .innerJoin(skills, eq(skills.id, badgeSkillRequirements.skillId))
     .where(eq(badgeSkillRequirements.badgeId, badgeId))
     .orderBy(asc(skills.name))
-    .all();
-  const completions = tx
+    .all());
+  const completions = (await tx
     .select()
     .from(studentSkillCompletions)
     .where(eq(studentSkillCompletions.studentId, studentId))
-    .all();
+    .all());
   const clearedAt = new Map(completions.map((c) => [c.skillId, c.clearedAt]));
   const progress = computeEligibility(
     required.map((s) => s.id),
     clearedAt.keys(),
   );
   const eligibility =
-    tx
+    (await tx
       .select()
       .from(badgeEligibilities)
       .where(and(eq(badgeEligibilities.studentId, studentId), eq(badgeEligibilities.badgeId, badgeId)))
-      .get() ?? null;
-  const attempts = tx
+      .get()) ?? null;
+  const attempts = (await tx
     .select()
     .from(interviewAttempts)
     .where(and(eq(interviewAttempts.studentId, studentId), eq(interviewAttempts.badgeId, badgeId)))
     .orderBy(asc(interviewAttempts.attemptNo))
-    .all();
+    .all());
   const openAttempt = attempts.find((a) => isOpenAttempt(a.status)) ?? null;
   const lastFinal = [...attempts].reverse().find((a) => isFinalAttempt(a.status)) ?? null;
   const scheduled =
-    tx
+    (await tx
       .select()
       .from(appointments)
       .where(
@@ -126,16 +126,16 @@ export function loadBadgeContext(tx: DbOrTx, studentId: string, badgeId: string,
           eq(appointments.status, "scheduled"),
         ),
       )
-      .get() ?? null;
+      .get()) ?? null;
   const award =
-    tx
+    (await tx
       .select()
       .from(badgeAwards)
       .where(and(eq(badgeAwards.studentId, studentId), eq(badgeAwards.badgeId, badgeId)))
       .orderBy(desc(badgeAwards.awardedAt))
-      .get() ?? null;
+      .get()) ?? null;
   const unusedGrant =
-    tx
+    (await tx
       .select()
       .from(attemptGrants)
       .where(
@@ -145,7 +145,7 @@ export function loadBadgeContext(tx: DbOrTx, studentId: string, badgeId: string,
           isNull(attemptGrants.consumedByAttemptId),
         ),
       )
-      .get() ?? null;
+      .get()) ?? null;
 
   // Eligibility is the stored snapshot; `progress` explains it.
   const eligible = eligibility !== null;
@@ -184,16 +184,19 @@ export function loadBadgeContext(tx: DbOrTx, studentId: string, badgeId: string,
   };
 }
 
-export type BadgeContext = ReturnType<typeof loadBadgeContext>;
+export type BadgeContext = Awaited<ReturnType<typeof loadBadgeContext>>;
 
 /**
  * Run `fn` in one write transaction. BEGIN IMMEDIATE takes SQLite's single
  * writer lock up front, so checks and writes inside cannot interleave with
  * another writer. When called with a transaction it nests as a savepoint.
  */
-export function inTx<T>(db: DbOrTx, fn: (tx: Tx) => T): T {
-  return (db as Db).transaction(fn, { behavior: "immediate" });
+export async function inTx<T>(db: DbOrTx, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return (db as Db).transaction(fn);
 }
 
-export const isUniqueViolation = (e: unknown) =>
-  typeof e === "object" && e !== null && "code" in e && String((e as { code: unknown }).code).startsWith("SQLITE_CONSTRAINT");
+export const isUniqueViolation = (e: unknown): boolean => {
+  if (!e || typeof e !== "object") return false;
+  const error = e as { code?: unknown; cause?: unknown };
+  return String(error.code ?? "").startsWith("SQLITE_CONSTRAINT") || (error.cause !== e && isUniqueViolation(error.cause));
+};

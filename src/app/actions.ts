@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb, type Db } from "@/db";
 import { appointments, interviewers, OUTCOMES, students, type Outcome } from "@/db/schema";
-import { resetDemoData } from "@/db/seed-data";
+import { resetHostedDemo } from "@/db/turso-setup";
 import { createWindow, deleteWindow, updateWindow } from "@/domain/availability";
 import { grantReattempt, nullifyBadge } from "@/domain/badges";
 import { bookAppointment, cancelAppointment, markAbsence, markConducted, rescheduleAppointment } from "@/domain/booking";
@@ -28,7 +28,7 @@ type Ctx = { db: Db; now: Date; actor: Actor };
  */
 async function run<T>(
   allowed: Role[],
-  fn: (ctx: Ctx) => { data: T; message: string },
+  fn: (ctx: Ctx) => Promise<{ data: T; message: string }>,
 ): Promise<ActionResult<T>> {
   try {
     const persona = await getPersona();
@@ -39,14 +39,14 @@ async function run<T>(
         message: `This action is for the ${allowed.map((r) => ROLE_LABEL[r]).join(" or ")} persona. You are acting as ${ROLE_LABEL[persona.role]}.`,
       };
     }
-    const db = getDb();
-    const out = fn({ db, now: getNow(db), actor: persona.actor });
+    const db = (await getDb());
+    const out = await fn({ db, now: (await getNow(db)), actor: persona.actor });
     revalidatePath("/", "layout");
     return { ok: true, ...out };
   } catch (e) {
     if (e instanceof DomainError) return { ok: false, code: e.code, message: e.message, details: e.details };
-    console.error(e);
-    return { ok: false, code: "UNEXPECTED", message: "Something went wrong. Nothing was changed - please try again." };
+    console.error("Demo operation failed; inspect the database state before retrying.");
+    return { ok: false, code: "UNEXPECTED", message: "The change could not be confirmed. Refresh to check the current state before retrying." };
   }
 }
 
@@ -57,12 +57,12 @@ const str = (v: unknown, max = 500) => (typeof v === "string" ? v.slice(0, max) 
 export async function switchPersonaAction(role: string, personId?: string) {
   const persona = await getPersona();
   const nextRole: Role = ROLES.includes(role as Role) ? (role as Role) : persona.role;
-  const db = getDb();
+  const db = (await getDb());
   let studentId = persona.student.id;
   let interviewerId = persona.interviewer.id;
-  if (personId && nextRole === "student" && db.select().from(students).where(eq(students.id, personId)).get())
+  if (personId && nextRole === "student" && (await db.select().from(students).where(eq(students.id, personId)).get()))
     studentId = personId;
-  if (personId && nextRole === "interviewer" && db.select().from(interviewers).where(eq(interviewers.id, personId)).get())
+  if (personId && nextRole === "interviewer" && (await db.select().from(interviewers).where(eq(interviewers.id, personId)).get()))
     interviewerId = personId;
   await writePersona({ role: nextRole, studentId, interviewerId });
   revalidatePath("/", "layout");
@@ -70,32 +70,32 @@ export async function switchPersonaAction(role: string, personId?: string) {
 }
 
 export async function resetDemoAction(): Promise<ActionResult> {
-  return run(ROLES, ({ db }) => {
-    resetDemoData(db);
+  return run(ROLES, async ({ db }) => {
+    await resetHostedDemo(db.$client);
     return { data: undefined, message: "Demo data reset to its starting state." };
   });
 }
 
 /** Demo clock: jump to an instant (e.g. an interview's start) or back to real time. */
 export async function setDemoClockAction(targetIso: string | null): Promise<ActionResult> {
-  return run(ROLES, ({ db }) => {
+  return run(ROLES, async ({ db }) => {
     if (targetIso === null) {
-      setClockOffsetMs(db, 0);
+      (await setClockOffsetMs(db, 0));
       return { data: undefined, message: "Demo clock is back on real time." };
     }
     const target = Date.parse(targetIso);
     if (Number.isNaN(target)) throw new DomainError("INVALID_TIME", "That is not a valid time.");
-    if (target < getNow(db).getTime())
+    if (target < (await getNow(db)).getTime())
       throw new DomainError("INVALID_TIME", "The demo clock can only move forward. Use 'Back to real time' or reset the demo to go back.");
-    setClockOffsetMs(db, target - Date.now());
+    (await setClockOffsetMs(db, target - Date.now()));
     return { data: undefined, message: "Demo clock moved forward." };
   });
 }
 
 /** Demo control standing in for the skill-contest system reporting a cleared contest. */
 export async function clearSkillAction(skillId: string): Promise<ActionResult<{ newlyEligible: number }>> {
-  return run(["student"], ({ db, now, actor }) => {
-    const r = clearSkill(db, { studentId: actor.id, skillId: str(skillId), now });
+  return run(["student"], async ({ db, now, actor }) => {
+    const r = (await clearSkill(db, { studentId: actor.id, skillId: str(skillId), now }));
     return {
       data: { newlyEligible: r.newlyEligibleBadgeIds.length },
       message: r.alreadyCleared
@@ -116,7 +116,7 @@ export async function bookAction(input: {
   idempotencyKey: string;
   rescheduleOf?: string;
 }): Promise<ActionResult<{ appointmentId: string }>> {
-  return run(["student"], ({ db, now, actor }) => {
+  return run(["student"], async ({ db, now, actor }) => {
     const common = {
       interviewerId: str(input.interviewerId),
       startsAt: str(input.startsAt),
@@ -125,8 +125,8 @@ export async function bookAction(input: {
       now,
     };
     const r = input.rescheduleOf
-      ? rescheduleAppointment(db, { appointmentId: str(input.rescheduleOf), ...common })
-      : bookAppointment(db, { studentId: actor.id, badgeId: str(input.badgeId), ...common });
+      ? (await rescheduleAppointment(db, { appointmentId: str(input.rescheduleOf), ...common }))
+      : (await bookAppointment(db, { studentId: actor.id, badgeId: str(input.badgeId), ...common }));
     return {
       data: { appointmentId: r.appointmentId },
       message: input.rescheduleOf ? "Interview rescheduled." : "Interview booked.",
@@ -135,8 +135,8 @@ export async function bookAction(input: {
 }
 
 export async function cancelAppointmentAction(appointmentId: string, reason?: string): Promise<ActionResult> {
-  return run(ROLES, ({ db, now, actor }) => {
-    const r = cancelAppointment(db, { appointmentId: str(appointmentId), reason: str(reason), actor, now });
+  return run(ROLES, async ({ db, now, actor }) => {
+    const r = (await cancelAppointment(db, { appointmentId: str(appointmentId), reason: str(reason), actor, now }));
     return { data: undefined, message: r.replayed ? "This interview was already cancelled." : "Interview cancelled. The slot has been released." };
   });
 }
@@ -144,8 +144,8 @@ export async function cancelAppointmentAction(appointmentId: string, reason?: st
 // ---------------------------------------------------------------- interviewer / team
 
 export async function markConductedAction(appointmentId: string): Promise<ActionResult> {
-  return run(["interviewer", "team"], ({ db, now, actor }) => {
-    markConducted(db, { appointmentId: str(appointmentId), actor, now });
+  return run(["interviewer", "team"], async ({ db, now, actor }) => {
+    (await markConducted(db, { appointmentId: str(appointmentId), actor, now }));
     return { data: undefined, message: "Marked as conducted. The outcome is now pending." };
   });
 }
@@ -155,9 +155,9 @@ export async function markAbsenceAction(
   kind: "no_show" | "interviewer_absent",
   note?: string,
 ): Promise<ActionResult> {
-  return run(["interviewer", "team"], ({ db, now, actor }) => {
+  return run(["interviewer", "team"], async ({ db, now, actor }) => {
     if (kind !== "no_show" && kind !== "interviewer_absent") throw new DomainError("INVALID", "Unknown attendance type.");
-    markAbsence(db, { appointmentId: str(appointmentId), kind, note: str(note), actor, now });
+    (await markAbsence(db, { appointmentId: str(appointmentId), kind, note: str(note), actor, now }));
     return {
       data: undefined,
       message: kind === "no_show" ? "Recorded as a student no-show. The student can book again." : "Recorded as interviewer absent. The student can book again.",
@@ -176,15 +176,15 @@ export async function recordOutcomeAction(input: {
   privateNotes?: string;
   retakeWaitDays?: number;
 }): Promise<ActionResult<{ replayed: boolean }>> {
-  return run(["interviewer", "team"], ({ db, now, actor }) => {
-    const r = recordOutcome(db, {
+  return run(["interviewer", "team"], async ({ db, now, actor }) => {
+    const r = (await recordOutcome(db, {
       appointmentId: str(input.appointmentId),
       outcome: asOutcome(input.outcome),
       privateNotes: str(input.privateNotes, 2000),
       retakeWaitDays: Number.isFinite(input.retakeWaitDays) ? Number(input.retakeWaitDays) : undefined,
       actor,
       now,
-    });
+    }));
     return {
       data: { replayed: r.replayed },
       message: r.replayed ? "This outcome was already recorded - nothing was duplicated." : "Outcome recorded and published to the student.",
@@ -197,22 +197,22 @@ export async function correctOutcomeAction(input: {
   outcome: string;
   reason: string;
 }): Promise<ActionResult> {
-  return run(["team"], ({ db, now, actor }) => {
-    correctOutcome(db, { attemptId: str(input.attemptId), outcome: asOutcome(input.outcome), reason: str(input.reason, 1000), actor, now });
+  return run(["team"], async ({ db, now, actor }) => {
+    (await correctOutcome(db, { attemptId: str(input.attemptId), outcome: asOutcome(input.outcome), reason: str(input.reason, 1000), actor, now }));
     return { data: undefined, message: "Correction recorded. The original outcome is kept in the history." };
   });
 }
 
 export async function nullifyBadgeAction(awardId: string, reason: string): Promise<ActionResult> {
-  return run(["team"], ({ db, now, actor }) => {
-    const r = nullifyBadge(db, { awardId: str(awardId), reason: str(reason, 1000), actor, now });
+  return run(["team"], async ({ db, now, actor }) => {
+    const r = (await nullifyBadge(db, { awardId: str(awardId), reason: str(reason, 1000), actor, now }));
     return { data: undefined, message: r.replayed ? "This badge was already nullified." : "Badge nullified. The student now sees the nullified status." };
   });
 }
 
 export async function grantReattemptAction(studentId: string, badgeId: string, reason: string): Promise<ActionResult> {
-  return run(["team"], ({ db, now, actor }) => {
-    const r = grantReattempt(db, { studentId: str(studentId), badgeId: str(badgeId), reason: str(reason, 1000), actor, now });
+  return run(["team"], async ({ db, now, actor }) => {
+    const r = (await grantReattempt(db, { studentId: str(studentId), badgeId: str(badgeId), reason: str(reason, 1000), actor, now }));
     return { data: undefined, message: r.replayed ? "A new attempt is already open for this student." : "New attempt opened. The student can now book." };
   });
 }
@@ -222,8 +222,8 @@ export async function grantReattemptAction(studentId: string, badgeId: string, r
 type WindowInput = { day: string; startHm: string; endHm: string };
 
 export async function createWindowAction(input: WindowInput): Promise<ActionResult> {
-  return run(["interviewer"], ({ db, now, actor }) => {
-    createWindow(db, { interviewerId: actor.id, day: str(input.day), startHm: str(input.startHm), endHm: str(input.endHm), actor, now });
+  return run(["interviewer"], async ({ db, now, actor }) => {
+    (await createWindow(db, { interviewerId: actor.id, day: str(input.day), startHm: str(input.startHm), endHm: str(input.endHm), actor, now }));
     return { data: undefined, message: "Availability added. Students can now book these slots." };
   });
 }
@@ -233,8 +233,8 @@ export async function updateWindowAction(
   input: WindowInput,
   resolution?: "release",
 ): Promise<ActionResult<{ released: number }>> {
-  return run(["interviewer"], ({ db, now, actor }) => {
-    const r = updateWindow(db, {
+  return run(["interviewer"], async ({ db, now, actor }) => {
+    const r = (await updateWindow(db, {
       windowId: str(windowId),
       day: str(input.day),
       startHm: str(input.startHm),
@@ -242,22 +242,22 @@ export async function updateWindowAction(
       resolution: resolution === "release" ? "release" : undefined,
       actor,
       now,
-    });
+    }));
     return { data: r, message: r.released ? `Availability updated. ${r.released} interview(s) released for re-booking.` : "Availability updated." };
   });
 }
 
 export async function deleteWindowAction(windowId: string, resolution?: "release"): Promise<ActionResult<{ released: number }>> {
-  return run(["interviewer"], ({ db, now, actor }) => {
-    const r = deleteWindow(db, { windowId: str(windowId), resolution: resolution === "release" ? "release" : undefined, actor, now });
+  return run(["interviewer"], async ({ db, now, actor }) => {
+    const r = (await deleteWindow(db, { windowId: str(windowId), resolution: resolution === "release" ? "release" : undefined, actor, now }));
     return { data: r, message: r.released ? `Availability removed. ${r.released} interview(s) released for re-booking.` : "Availability removed." };
   });
 }
 
 /** Demo helper: jump the demo clock to the start of an appointment. */
 export async function jumpToAppointmentAction(appointmentId: string): Promise<ActionResult> {
-  const db = getDb();
-  const appt = db.select().from(appointments).where(eq(appointments.id, str(appointmentId))).get();
+  const db = (await getDb());
+  const appt = (await db.select().from(appointments).where(eq(appointments.id, str(appointmentId))).get());
   if (!appt) return { ok: false, code: "NOT_FOUND", message: "That appointment does not exist." };
   return setDemoClockAction(new Date(Date.parse(appt.startsAt) + 60_000).toISOString());
 }

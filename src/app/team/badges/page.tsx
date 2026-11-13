@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 export const metadata: Metadata = { title: "Badges" };
 
 export default async function BadgesPage() {
-  const awards = listAwards(getDb());
+  const awards = (await listAwards((await getDb())));
   return (
     <>
       <PageHeader

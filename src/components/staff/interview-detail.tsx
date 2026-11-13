@@ -18,10 +18,10 @@ import { fmtDate, fmtDateLong, fmtRange, fmtStamp } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { OutcomeForm } from "./outcome-form";
 
-type Detail = NonNullable<ReturnType<typeof getAppointmentDetail>>;
+type Detail = NonNullable<Awaited<ReturnType<typeof getAppointmentDetail>>>;
 
 /** Interview detail shared by the interviewer and the interview team. */
-export function InterviewDetail({
+export async function InterviewDetail({
   db,
   detail,
   role,
@@ -35,7 +35,7 @@ export function InterviewDetail({
   back: { href: string; label: string };
 }) {
   const { appt, outcomes, siblings, priorAttempts, award, events } = detail;
-  const ctx = loadBadgeContext(db, appt.studentId, appt.badgeId, now);
+  const ctx = await loadBadgeContext(db, appt.studentId, appt.badgeId, now);
   const phase = appointmentPhase(appt, now);
   const current = outcomes.find((o) => o.isCurrent) ?? null;
   const final = isFinalAttempt(appt.attemptStatus);

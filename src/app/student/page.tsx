@@ -10,12 +10,12 @@ export const metadata: Metadata = { title: "Home" };
 
 export default async function StudentHomePage() {
   const { student } = await getPersona();
-  const db = getDb();
-  const now = getNow(db);
+  const db = (await getDb());
+  const now = (await getNow(db));
   return (
     <>
       <AutoRefresh seconds={30} />
-      <StudentHome student={student} views={getStudentBadgeViews(db, student.id, now)} now={now} />
+      <StudentHome student={student} views={(await getStudentBadgeViews(db, student.id, now))} now={now} />
     </>
   );
 }

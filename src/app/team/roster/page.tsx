@@ -9,9 +9,9 @@ import { fmtDate, fmtDayShort, fmtStamp, fmtTime } from "@/lib/time";
 export const metadata: Metadata = { title: "Eligible students" };
 
 export default async function RosterPage() {
-  const db = getDb();
-  const now = getNow(db);
-  const roster = getRoster(db, now);
+  const db = (await getDb());
+  const now = (await getNow(db));
+  const roster = (await getRoster(db, now));
   const rows: RosterViewRow[] = roster.map((r) => ({
     key: r.eligibilityId,
     studentId: r.studentId,

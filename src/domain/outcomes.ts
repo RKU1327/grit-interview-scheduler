@@ -34,7 +34,7 @@ export const OUTCOME_LABEL: Record<Outcome, string> = { pass: "Pass", fail: "Fai
  *    no-op, anything else is rejected and must go through `correctOutcome`
  * A pass issues the badge award in the same transaction.
  */
-export function recordOutcome(
+export async function recordOutcome(
   db: DbOrTx,
   input: {
     appointmentId: string;
@@ -44,25 +44,25 @@ export function recordOutcome(
     actor: Actor;
     now: Date;
   },
-): { attemptId: string; awardId: string | null; replayed: boolean } {
-  return inTx(db, (tx) => {
+): Promise<{ attemptId: string; awardId: string | null; replayed: boolean }> {
+  return (await inTx(db, async (tx) => {
     if (input.actor.role !== "interviewer" && input.actor.role !== "team")
       throw new DomainError("FORBIDDEN", "Only interviewers and the interview team can record outcomes.");
-    const appt = tx.select().from(appointments).where(eq(appointments.id, input.appointmentId)).get();
+    const appt = (await tx.select().from(appointments).where(eq(appointments.id, input.appointmentId)).get());
     if (!appt) throw new DomainError("NOT_FOUND", "That appointment does not exist.");
     if (input.actor.role === "interviewer" && input.actor.id !== appt.interviewerId)
       throw new DomainError("FORBIDDEN", "This interview is assigned to a different interviewer.");
-    const attempt = tx.select().from(interviewAttempts).where(eq(interviewAttempts.id, appt.attemptId)).get();
+    const attempt = (await tx.select().from(interviewAttempts).where(eq(interviewAttempts.id, appt.attemptId)).get());
     if (!attempt) throw new DomainError("NOT_FOUND", "Attempt not found.");
 
     if (isFinalAttempt(attempt.status)) {
-      const current = tx
+      const current = (await tx
         .select()
         .from(attemptOutcomes)
         .where(and(eq(attemptOutcomes.attemptId, attempt.id), eq(attemptOutcomes.isCurrent, true)))
-        .get();
+        .get());
       if (current && current.appointmentId === appt.id && current.outcome === input.outcome) {
-        const award = tx.select().from(badgeAwards).where(eq(badgeAwards.attemptId, attempt.id)).get();
+        const award = (await tx.select().from(badgeAwards).where(eq(badgeAwards.attemptId, attempt.id)).get());
         return { attemptId: attempt.id, awardId: award?.id ?? null, replayed: true };
       }
       throw new DomainError(
@@ -78,12 +78,12 @@ export function recordOutcome(
     if (input.now < new Date(appt.startsAt))
       throw new DomainError("TOO_EARLY", "This interview has not started yet. Outcomes can be recorded from its start time.");
 
-    if (appt.status === "scheduled") completeAppointment(tx, appt, input.actor, input.now);
+    if (appt.status === "scheduled") (await completeAppointment(tx, appt, input.actor, input.now));
     const target = OUTCOME_TO_STATUS[input.outcome];
     assertAttemptTransition("awaiting_outcome", target);
 
-    const student = tx.select().from(students).where(eq(students.id, appt.studentId)).get();
-    const badge = tx.select().from(trackBadges).where(eq(trackBadges.id, appt.badgeId)).get();
+    const student = (await tx.select().from(students).where(eq(students.id, appt.studentId)).get());
+    const badge = (await tx.select().from(trackBadges).where(eq(trackBadges.id, appt.badgeId)).get());
     const nowIso = input.now.toISOString();
     const waitDays =
       input.outcome === "retake_later"
@@ -92,7 +92,7 @@ export function recordOutcome(
     const retakeAvailableAt = waitDays === null ? null : addDays(input.now, waitDays).toISOString();
 
     const outcomeId = newId("out");
-    tx.insert(attemptOutcomes)
+    (await tx.insert(attemptOutcomes)
       .values({
         id: outcomeId,
         attemptId: attempt.id,
@@ -105,12 +105,12 @@ export function recordOutcome(
         recordedAt: nowIso,
         isCurrent: true,
       })
-      .run();
-    tx.update(interviewAttempts)
+      .run());
+    (await tx.update(interviewAttempts)
       .set({ status: target, closedAt: nowIso, retakeAvailableAt })
       .where(eq(interviewAttempts.id, attempt.id))
-      .run();
-    audit(tx, {
+      .run());
+    (await audit(tx, {
       entityType: "outcome",
       entityId: outcomeId,
       studentId: appt.studentId,
@@ -122,11 +122,11 @@ export function recordOutcome(
       summary: `Outcome recorded: ${OUTCOME_LABEL[input.outcome]} (attempt ${attempt.attemptNo})`,
       detail: { attemptId: attempt.id, appointmentId: appt.id, retakeAvailableAt },
       at: input.now,
-    });
+    }));
 
     let awardId: string | null = null;
     if (input.outcome === "pass") {
-      awardId = issueAward(tx, {
+      awardId = (await issueAward(tx, {
         studentId: appt.studentId,
         badgeId: appt.badgeId,
         attemptId: attempt.id,
@@ -134,18 +134,18 @@ export function recordOutcome(
         badgeName: badge?.name ?? "badge",
         actor: input.actor,
         now: input.now,
-      });
+      }));
     }
     return { attemptId: attempt.id, awardId, replayed: false };
-  });
+  }));
 }
 
-function issueAward(
+async function issueAward(
   tx: DbOrTx,
   i: { studentId: string; badgeId: string; attemptId: string; studentName: string; badgeName: string; actor: Actor; now: Date },
 ) {
   const awardId = newId("awd");
-  tx.insert(badgeAwards)
+  (await tx.insert(badgeAwards)
     .values({
       id: awardId,
       studentId: i.studentId,
@@ -154,8 +154,8 @@ function issueAward(
       status: "active",
       awardedAt: i.now.toISOString(),
     })
-    .run();
-  audit(tx, {
+    .run());
+  (await audit(tx, {
     entityType: "award",
     entityId: awardId,
     studentId: i.studentId,
@@ -167,7 +167,7 @@ function issueAward(
     summary: `${i.badgeName} awarded to ${i.studentName}`,
     detail: { attemptId: i.attemptId },
     at: i.now,
-  });
+  }));
   return awardId;
 }
 
@@ -175,17 +175,17 @@ function issueAward(
  * Authorised correction of a finalised outcome (interview team only). The old
  * outcome row is kept and marked superseded; a new row carries the reason.
  */
-export function correctOutcome(
+export async function correctOutcome(
   db: DbOrTx,
   input: { attemptId: string; outcome: Outcome; reason: string; retakeWaitDays?: number; actor: Actor; now: Date },
-): { outcomeId: string; awardId: string | null } {
-  return inTx(db, (tx) => {
+): Promise<{ outcomeId: string; awardId: string | null }> {
+  return (await inTx(db, async (tx) => {
     if (input.actor.role !== "team")
       throw new DomainError("FORBIDDEN", "Only the interview team can correct a finalised outcome.");
     const reason = input.reason.trim();
     if (reason.length < POLICY.minReasonLength)
       throw new DomainError("REASON_REQUIRED", `Give a reason of at least ${POLICY.minReasonLength} characters.`);
-    const attempt = tx.select().from(interviewAttempts).where(eq(interviewAttempts.id, input.attemptId)).get();
+    const attempt = (await tx.select().from(interviewAttempts).where(eq(interviewAttempts.id, input.attemptId)).get());
     if (!attempt) throw new DomainError("NOT_FOUND", "Attempt not found.");
     const target = OUTCOME_TO_STATUS[input.outcome];
     if (attempt.status === target) throw new DomainError("NO_CHANGE", "That is already the recorded outcome.");
@@ -196,7 +196,7 @@ export function correctOutcome(
           ? "A pass cannot be corrected away. If malpractice is confirmed, nullify the badge instead."
           : `An attempt that is ${humanize(attempt.status)} has no outcome to correct.`,
       );
-    const later = tx
+    const later = (await tx
       .select({ id: interviewAttempts.id })
       .from(interviewAttempts)
       .where(
@@ -206,14 +206,14 @@ export function correctOutcome(
           gt(interviewAttempts.attemptNo, attempt.attemptNo),
         ),
       )
-      .get();
+      .get());
     if (later)
       throw new DomainError("SUPERSEDED_ATTEMPT", "A newer attempt exists for this badge, so this outcome can no longer be corrected.");
-    const current = tx
+    const current = (await tx
       .select()
       .from(attemptOutcomes)
       .where(and(eq(attemptOutcomes.attemptId, attempt.id), eq(attemptOutcomes.isCurrent, true)))
-      .get();
+      .get());
     if (!current) throw new DomainError("NOT_FOUND", "No current outcome to correct.");
 
     const nowIso = input.now.toISOString();
@@ -221,9 +221,9 @@ export function correctOutcome(
       input.outcome === "retake_later"
         ? addDays(input.now, Math.max(0, input.retakeWaitDays ?? POLICY.defaultRetakeWaitDays)).toISOString()
         : null;
-    tx.update(attemptOutcomes).set({ isCurrent: false }).where(eq(attemptOutcomes.id, current.id)).run();
+    (await tx.update(attemptOutcomes).set({ isCurrent: false }).where(eq(attemptOutcomes.id, current.id)).run());
     const outcomeId = newId("out");
-    tx.insert(attemptOutcomes)
+    (await tx.insert(attemptOutcomes)
       .values({
         id: outcomeId,
         attemptId: attempt.id,
@@ -237,12 +237,12 @@ export function correctOutcome(
         supersedesId: current.id,
         correctionReason: reason,
       })
-      .run();
-    tx.update(interviewAttempts)
+      .run());
+    (await tx.update(interviewAttempts)
       .set({ status: target, retakeAvailableAt })
       .where(eq(interviewAttempts.id, attempt.id))
-      .run();
-    audit(tx, {
+      .run());
+    (await audit(tx, {
       entityType: "outcome",
       entityId: outcomeId,
       studentId: attempt.studentId,
@@ -254,12 +254,12 @@ export function correctOutcome(
       summary: `Outcome corrected from ${OUTCOME_LABEL[STATUS_TO_OUTCOME[attempt.status]!]} to ${OUTCOME_LABEL[input.outcome]}`,
       detail: { reason, supersedes: current.id, attemptId: attempt.id },
       at: input.now,
-    });
+    }));
     let awardId: string | null = null;
     if (input.outcome === "pass") {
-      const student = tx.select().from(students).where(eq(students.id, attempt.studentId)).get();
-      const badge = tx.select().from(trackBadges).where(eq(trackBadges.id, attempt.badgeId)).get();
-      awardId = issueAward(tx, {
+      const student = (await tx.select().from(students).where(eq(students.id, attempt.studentId)).get());
+      const badge = (await tx.select().from(trackBadges).where(eq(trackBadges.id, attempt.badgeId)).get());
+      awardId = (await issueAward(tx, {
         studentId: attempt.studentId,
         badgeId: attempt.badgeId,
         attemptId: attempt.id,
@@ -267,8 +267,8 @@ export function correctOutcome(
         badgeName: badge?.name ?? "badge",
         actor: input.actor,
         now: input.now,
-      });
+      }));
     }
     return { outcomeId, awardId };
-  });
+  }));
 }

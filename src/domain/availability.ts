@@ -30,8 +30,8 @@ function parseRange(day: string, startHm: string, endHm: string, now: Date) {
   return { startIso: start.toISOString(), endIso: end.toISOString() };
 }
 
-function assertNoOverlap(tx: Tx, interviewerId: string, startIso: string, endIso: string, ignoreId = "") {
-  const clash = tx
+async function assertNoOverlap(tx: Tx, interviewerId: string, startIso: string, endIso: string, ignoreId = "") {
+  const clash = (await tx
     .select()
     .from(availabilityWindows)
     .where(
@@ -42,7 +42,7 @@ function assertNoOverlap(tx: Tx, interviewerId: string, startIso: string, endIso
         ne(availabilityWindows.id, ignoreId),
       ),
     )
-    .get();
+    .get());
   if (clash)
     throw new DomainError(
       "OVERLAP",
@@ -50,8 +50,8 @@ function assertNoOverlap(tx: Tx, interviewerId: string, startIso: string, endIso
     );
 }
 
-function assertOwner(tx: Tx, windowId: string, actor: Actor) {
-  const w = tx.select().from(availabilityWindows).where(eq(availabilityWindows.id, windowId)).get();
+async function assertOwner(tx: Tx, windowId: string, actor: Actor) {
+  const w = (await tx.select().from(availabilityWindows).where(eq(availabilityWindows.id, windowId)).get());
   if (!w) throw new DomainError("NOT_FOUND", "That availability window no longer exists.");
   if (actor.role !== "team" && actor.id !== w.interviewerId)
     throw new DomainError("FORBIDDEN", "You can only change your own availability.");
@@ -59,42 +59,44 @@ function assertOwner(tx: Tx, windowId: string, actor: Actor) {
 }
 
 /** Scheduled interviews that sat inside `old` and are not covered by `next` (or any other window). */
-function uncoveredBookings(
+async function uncoveredBookings(
   tx: Tx,
   old: typeof availabilityWindows.$inferSelect,
   next: { startIso: string; endIso: string } | null,
-): AvailabilityConflict[] {
-  const others = tx
+): Promise<AvailabilityConflict[]> {
+  const others = (await tx
     .select()
     .from(availabilityWindows)
     .where(and(eq(availabilityWindows.interviewerId, old.interviewerId), ne(availabilityWindows.id, old.id)))
-    .all();
+    .all());
   const covers = (s: string, e: string, w: { startIso: string; endIso: string }) => w.startIso <= s && w.endIso >= e;
-  return scheduledBetween(tx, old.interviewerId, old.startsAt, old.endsAt)
+  const affected = (await scheduledBetween(tx, old.interviewerId, old.startsAt, old.endsAt))
     .filter((a) => {
       if (next && covers(a.startsAt, a.endsAt, next) && (Date.parse(a.startsAt) - Date.parse(next.startIso)) % SLOT_MS === 0)
         return false;
       return !others.some((o) => covers(a.startsAt, a.endsAt, { startIso: o.startsAt, endIso: o.endsAt }));
-    })
-    .map((a) => {
-      const student = tx.select().from(students).where(eq(students.id, a.studentId)).get();
-      const badge = tx.select().from(trackBadges).where(eq(trackBadges.id, a.badgeId)).get();
-      return {
+    });
+  const conflicts: AvailabilityConflict[] = [];
+  for (const a of affected) {
+      const student = (await tx.select().from(students).where(eq(students.id, a.studentId)).get());
+      const badge = (await tx.select().from(trackBadges).where(eq(trackBadges.id, a.badgeId)).get());
+      conflicts.push({
         appointmentId: a.id,
         studentName: student?.name ?? "Student",
         badgeName: badge?.name ?? "Badge",
         startsAt: a.startsAt,
         endsAt: a.endsAt,
-      };
-    });
+      });
+  }
+  return conflicts;
 }
 
 /** Explicit resolution: cancel the affected interviews on the interviewer's behalf. */
-function releaseBookings(tx: Tx, conflicts: AvailabilityConflict[], actor: Actor, now: Date) {
+async function releaseBookings(tx: Tx, conflicts: AvailabilityConflict[], actor: Actor, now: Date) {
   for (const c of conflicts) {
-    const appt = tx.select().from(appointments).where(eq(appointments.id, c.appointmentId)).get();
+    const appt = (await tx.select().from(appointments).where(eq(appointments.id, c.appointmentId)).get());
     if (!appt || appt.status !== "scheduled") continue;
-    tx.update(appointments)
+    (await tx.update(appointments)
       .set({
         status: "cancelled",
         closedBy: actor.role,
@@ -102,8 +104,8 @@ function releaseBookings(tx: Tx, conflicts: AvailabilityConflict[], actor: Actor
         updatedAt: now.toISOString(),
       })
       .where(eq(appointments.id, appt.id))
-      .run();
-    audit(tx, {
+      .run());
+    (await audit(tx, {
       entityType: "appointment",
       entityId: appt.id,
       studentId: appt.studentId,
@@ -115,27 +117,27 @@ function releaseBookings(tx: Tx, conflicts: AvailabilityConflict[], actor: Actor
       summary: `Interview on ${fmtDateTime(appt.startsAt)} released - interviewer no longer available`,
       detail: { reason: "availability_changed" },
       at: now,
-    });
+    }));
   }
 }
 
-export function createWindow(
+export async function createWindow(
   db: DbOrTx,
   input: { interviewerId: string; day: string; startHm: string; endHm: string; actor: Actor; now: Date },
-): { windowId: string } {
-  return inTx(db, (tx) => {
+): Promise<{ windowId: string }> {
+  return (await inTx(db, async (tx) => {
     if (input.actor.role !== "team" && input.actor.id !== input.interviewerId)
       throw new DomainError("FORBIDDEN", "You can only change your own availability.");
-    const interviewer = tx.select().from(interviewers).where(eq(interviewers.id, input.interviewerId)).get();
+    const interviewer = (await tx.select().from(interviewers).where(eq(interviewers.id, input.interviewerId)).get());
     if (!interviewer) throw new DomainError("NOT_FOUND", "Unknown interviewer.");
     const { startIso, endIso } = parseRange(input.day, input.startHm, input.endHm, input.now);
-    assertNoOverlap(tx, interviewer.id, startIso, endIso);
+    (await assertNoOverlap(tx, interviewer.id, startIso, endIso));
     const id = newId("win");
     const nowIso = input.now.toISOString();
-    tx.insert(availabilityWindows)
+    (await tx.insert(availabilityWindows)
       .values({ id, interviewerId: interviewer.id, startsAt: startIso, endsAt: endIso, createdAt: nowIso, updatedAt: nowIso })
-      .run();
-    audit(tx, {
+      .run());
+    (await audit(tx, {
       entityType: "availability",
       entityId: id,
       eventType: "availability.created",
@@ -143,9 +145,9 @@ export function createWindow(
       summary: `${interviewer.name} added availability ${fmtDateTime(startIso)} to ${fmtRange(startIso, endIso)}`,
       detail: { startsAt: startIso, endsAt: endIso },
       at: input.now,
-    });
+    }));
     return { windowId: id };
-  });
+  }));
 }
 
 /**
@@ -153,27 +155,27 @@ export function createWindow(
  * availability the change is refused with BOOKING_CONFLICT (listing them)
  * unless the caller explicitly chooses `resolution: "release"`.
  */
-export function updateWindow(
+export async function updateWindow(
   db: DbOrTx,
   input: { windowId: string; day: string; startHm: string; endHm: string; resolution?: "release"; actor: Actor; now: Date },
-): { released: number } {
-  return inTx(db, (tx) => {
-    const old = assertOwner(tx, input.windowId, input.actor);
+): Promise<{ released: number }> {
+  return (await inTx(db, async (tx) => {
+    const old = (await assertOwner(tx, input.windowId, input.actor));
     const next = parseRange(input.day, input.startHm, input.endHm, input.now);
-    assertNoOverlap(tx, old.interviewerId, next.startIso, next.endIso, old.id);
-    const conflicts = uncoveredBookings(tx, old, next);
+    (await assertNoOverlap(tx, old.interviewerId, next.startIso, next.endIso, old.id));
+    const conflicts = (await uncoveredBookings(tx, old, next));
     if (conflicts.length && input.resolution !== "release")
       throw new DomainError(
         "BOOKING_CONFLICT",
         `${conflicts.length} booked interview${conflicts.length === 1 ? "" : "s"} would fall outside this window.`,
         { conflicts },
       );
-    releaseBookings(tx, conflicts, input.actor, input.now);
-    tx.update(availabilityWindows)
+    (await releaseBookings(tx, conflicts, input.actor, input.now));
+    (await tx.update(availabilityWindows)
       .set({ startsAt: next.startIso, endsAt: next.endIso, updatedAt: input.now.toISOString() })
       .where(eq(availabilityWindows.id, old.id))
-      .run();
-    audit(tx, {
+      .run());
+    (await audit(tx, {
       entityType: "availability",
       entityId: old.id,
       eventType: "availability.updated",
@@ -181,27 +183,27 @@ export function updateWindow(
       summary: `Availability changed to ${fmtDateTime(next.startIso)} to ${fmtRange(next.startIso, next.endIso)}`,
       detail: { from: [old.startsAt, old.endsAt], to: [next.startIso, next.endIso], released: conflicts.length },
       at: input.now,
-    });
+    }));
     return { released: conflicts.length };
-  });
+  }));
 }
 
-export function deleteWindow(
+export async function deleteWindow(
   db: DbOrTx,
   input: { windowId: string; resolution?: "release"; actor: Actor; now: Date },
-): { released: number } {
-  return inTx(db, (tx) => {
-    const old = assertOwner(tx, input.windowId, input.actor);
-    const conflicts = uncoveredBookings(tx, old, null);
+): Promise<{ released: number }> {
+  return (await inTx(db, async (tx) => {
+    const old = (await assertOwner(tx, input.windowId, input.actor));
+    const conflicts = (await uncoveredBookings(tx, old, null));
     if (conflicts.length && input.resolution !== "release")
       throw new DomainError(
         "BOOKING_CONFLICT",
         `${conflicts.length} booked interview${conflicts.length === 1 ? "" : "s"} sit${conflicts.length === 1 ? "s" : ""} inside this window.`,
         { conflicts },
       );
-    releaseBookings(tx, conflicts, input.actor, input.now);
-    tx.delete(availabilityWindows).where(eq(availabilityWindows.id, old.id)).run();
-    audit(tx, {
+    (await releaseBookings(tx, conflicts, input.actor, input.now));
+    (await tx.delete(availabilityWindows).where(eq(availabilityWindows.id, old.id)).run());
+    (await audit(tx, {
       entityType: "availability",
       entityId: old.id,
       eventType: "availability.removed",
@@ -209,13 +211,13 @@ export function deleteWindow(
       summary: `Availability removed: ${fmtDateTime(old.startsAt)} to ${fmtRange(old.startsAt, old.endsAt)}`,
       detail: { startsAt: old.startsAt, endsAt: old.endsAt, released: conflicts.length },
       at: input.now,
-    });
+    }));
     return { released: conflicts.length };
-  });
+  }));
 }
 
-export function listWindows(db: DbOrTx, interviewerId: string, fromIso: string, toIso: string) {
-  return db
+export async function listWindows(db: DbOrTx, interviewerId: string, fromIso: string, toIso: string) {
+  return (await db
     .select()
     .from(availabilityWindows)
     .where(
@@ -226,5 +228,5 @@ export function listWindows(db: DbOrTx, interviewerId: string, fromIso: string, 
       ),
     )
     .orderBy(asc(availabilityWindows.startsAt))
-    .all();
+    .all());
 }

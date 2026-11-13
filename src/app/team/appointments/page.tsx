@@ -11,9 +11,9 @@ import { fmtDayShort, fmtRange } from "@/lib/time";
 export const metadata: Metadata = { title: "Appointments" };
 
 export default async function AppointmentsPage() {
-  const db = getDb();
-  const now = getNow(db);
-  const rows: AppointmentViewRow[] = listAppointments(db, undefined, "desc").map((a) => ({
+  const db = (await getDb());
+  const now = (await getNow(db));
+  const rows: AppointmentViewRow[] = (await listAppointments(db, undefined, "desc")).map((a) => ({
     id: a.id,
     whenLabel: fmtDayShort(a.startsAt),
     timeLabel: fmtRange(a.startsAt, a.endsAt).replace(" IST", ""),
@@ -35,7 +35,7 @@ export default async function AppointmentsPage() {
       />
       <AppointmentsTable
         rows={rows}
-        interviewers={db.select({ id: interviewers.id, name: interviewers.name }).from(interviewers).orderBy(asc(interviewers.name)).all()}
+        interviewers={(await db.select({ id: interviewers.id, name: interviewers.name }).from(interviewers).orderBy(asc(interviewers.name)).all())}
       />
     </>
   );

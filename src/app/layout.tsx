@@ -42,8 +42,8 @@ const NAV: Record<Role, { href: string; label: string; exact?: boolean }[]> = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const persona = await getPersona();
-  const db = getDb();
-  const offset = getClockOffsetMs(db);
+  const db = (await getDb());
+  const offset = (await getClockOffsetMs(db));
   const who =
     persona.role === "student"
       ? persona.student.name
@@ -64,13 +64,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           role={persona.role}
           studentId={persona.student.id}
           interviewerId={persona.interviewer.id}
-          students={db.select({ id: students.id, name: students.name }).from(students).orderBy(asc(students.name)).all()}
-          interviewers={db
+          students={(await db.select({ id: students.id, name: students.name }).from(students).orderBy(asc(students.name)).all())}
+          interviewers={(await db
             .select({ id: interviewers.id, name: interviewers.name })
             .from(interviewers)
             .orderBy(asc(interviewers.name))
-            .all()}
-          clockLabel={Math.abs(offset) > 1000 ? fmtStamp(getNow(db)) : null}
+            .all())}
+          clockLabel={Math.abs(offset) > 1000 ? fmtStamp((await getNow(db))) : null}
         />
         <header className="border-b bg-card">
           <div className="mx-auto max-w-6xl px-4 sm:px-6">

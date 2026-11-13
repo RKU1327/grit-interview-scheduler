@@ -72,10 +72,10 @@ const PEOPLE: [string, string, string][] = [
 ];
 
 export default async function DemoPage() {
-  const db = getDb();
-  const now = getNow(db);
-  const shifted = Math.abs(getClockOffsetMs(db)) > 1000;
-  const o = getOverview(db, now);
+  const db = (await getDb());
+  const now = (await getNow(db));
+  const shifted = Math.abs((await getClockOffsetMs(db))) > 1000;
+  const o = (await getOverview(db, now));
 
   return (
     <>
@@ -86,7 +86,7 @@ export default async function DemoPage() {
           </span>
         }
         title="Guided demo"
-        description="A walk through the whole workflow. All people and records are fictional. There is no sign-in: the bar at the top switches between the three personas."
+        description="A walk through the whole workflow. All people and records are fictional. Demo data and the clock are shared by everyone using this database, so another visitor can change or reset them. There is no sign-in: the bar at the top switches between the three personas."
       />
       <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
         <Panel title="Demo journey" description="Eight steps that each change real state. Follow them in order after a reset.">
@@ -138,7 +138,7 @@ export default async function DemoPage() {
                 confirm={{
                   title: "Reset all demo data?",
                   description:
-                    "Every booking, outcome and change you made is discarded and the seeded fixtures are recreated relative to the current time. The demo clock returns to real time.",
+                    "All visitors' demo bookings, outcomes and other changes are discarded, and the seeded fixtures are recreated relative to the current time. The shared demo clock returns to real time.",
                   confirmLabel: "Reset demo data",
                   destructive: true,
                 }}

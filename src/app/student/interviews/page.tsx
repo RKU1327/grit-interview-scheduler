@@ -14,9 +14,9 @@ export const metadata: Metadata = { title: "My interviews" };
 
 export default async function MyInterviewsPage() {
   const { student } = await getPersona();
-  const db = getDb();
-  const now = getNow(db);
-  const views = getStudentBadgeViews(db, student.id, now);
+  const db = (await getDb());
+  const now = (await getNow(db));
+  const views = (await getStudentBadgeViews(db, student.id, now));
   const active = views.filter((v) => v.activeAppointment);
   const history = views
     .flatMap((v) => v.attempts.flatMap((a) => a.appointments))
