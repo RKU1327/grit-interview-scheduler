@@ -30,11 +30,11 @@ Status as of 12 November 2026. "Done" means built and verified as described; any
 | `npm run typecheck` (TypeScript strict) | Passes |
 | `npm test` | 64 unit and integration tests pass |
 | `npm run build` | Production build succeeds, 19 routes |
-| `npm run test:e2e` | 10 Playwright tests pass against a production build |
+| `npm run test:e2e` | 10 Playwright tests pass against a production build (last run before two housekeeping commits that removed unused UI files and added `.npmrc`; lint, typecheck, unit tests and build were re-run after them) |
 | Seeded fixtures match dashboard numbers | Asserted in an integration test and an e2e test |
 | Browser check | Every main page loaded in Chromium with no console errors (e2e test); desktop and 390 px mobile screenshots reviewed; no horizontal overflow on mobile (e2e test) |
 | Write-up page count | 2 pages, verified programmatically with pdf-lib |
-| Fresh-clone setup | Cloned into an empty folder, then `npm ci`, `npm run db:setup`, `npm test`, `npm run build` and a request to the running server all succeeded |
+| Fresh-clone setup | Cloned into an empty folder on Windows with no C++ build tools: `npm ci`, `npm run db:setup`, `npm test`, `npm run lint` and `npm run build` succeeded, and the started server created and seeded its database on the first request. The first attempt failed because npm tried to compile the SQLite module; fixed with `.npmrc` (`ignore-scripts=true`). Not tested on macOS or Linux. |
 
 ## Functional coverage
 

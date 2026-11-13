@@ -10,7 +10,7 @@ Students who clear every skill a Track Badge requires book a live interview; int
 
 ## Quick start
 
-Requires Node.js 20.9 or newer (developed on Node 24) and npm.
+Requires Node.js 22 or newer (developed on Node 24) and npm. No compiler or build tools are needed.
 
 ```bash
 git clone https://github.com/RKU1327/grit-interview-scheduler.git
@@ -160,7 +160,7 @@ Key points:
 ### Decisions worth explaining
 
 - **Dynamic rendering.** `create-next-app` now enables Cache Components by default. Every screen here is live per-persona data, where stale output would be a correctness bug, so I turned it off and render dynamically.
-- **better-sqlite3.** Synchronous, in-process SQLite makes the transaction code short and easy to verify. It ships prebuilt binaries for current Node versions on Windows, macOS and Linux.
+- **better-sqlite3.** Synchronous, in-process SQLite makes the transaction code short and easy to verify. Version 13 bundles prebuilt binaries for Windows, macOS and Linux inside the package. `.npmrc` sets `ignore-scripts=true` because npm otherwise tries to compile it with node-gyp when installing from the lockfile, which fails without a C++ toolchain; no dependency here needs an install script.
 - **shadcn/ui (Base UI flavour).** Dialogs, buttons, inputs and toasts come from shadcn/ui. Simple filters and pickers use native controls for keyboard and screen-reader behaviour.
 - **SQLite limits.** There is no range-exclusion constraint, so "no overlapping bookings" relies on fixed 30-minute slots, a unique index on (interviewer, start), and SQLite's single writer. On Postgres I would use an exclusion constraint.
 
