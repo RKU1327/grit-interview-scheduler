@@ -6,6 +6,8 @@ Students who clear every skill a Track Badge requires book a live interview; int
 
 > This is an assignment prototype with fictional demo data. It is not an official NIAT application, and the booking policies in it are my assumptions, not NIAT rules.
 
+**Public prototype:** [grit-interview-scheduler-alpha.vercel.app](https://grit-interview-scheduler-alpha.vercel.app) · **[Open the guided demo](https://grit-interview-scheduler-alpha.vercel.app/demo)**
+
 ![Before and after: student home, not yet eligible vs badge earned](docs/screenshots/13-before-after-home-passed.png)
 
 ## Quick start
