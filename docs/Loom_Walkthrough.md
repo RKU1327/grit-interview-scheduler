@@ -4,8 +4,8 @@
 
 ## Before you press record
 
-1. `npm install`, then `npm run dev`, and open <http://localhost:3000/demo>.
-2. Click **Reset demo data** so every seeded state is fresh.
+1. For a private recording, run `npm install`, then `npm run dev`, and open <http://localhost:3000/demo>. The public version is at <https://grit-interview-scheduler-alpha.vercel.app/demo>.
+2. On the local demo, click **Reset demo data** so every seeded state is fresh. The public demo is shared; a reset or any change affects every visitor.
 3. Have the PDF `docs/GRIT_Assignment_Writeup.pdf` open in a second tab.
 4. Use a 1280–1440 px wide browser window at 100% zoom and close unrelated tabs.
 5. Do one silent dry run of the click path below. It takes about two minutes.
@@ -60,7 +60,7 @@
 
 **9. Trade-offs and next steps (PDF, page 2)**
 
-"Three honest trade-offs. First, the rules I had to invent, like the two-hour change cut-off or a no-show not costing an attempt, are prototype policy. They're in one file and listed as open questions in the write-up. Second, there's no real sign-in; the persona switcher stands in for it, though every action still checks role and ownership on the server. Third, it runs on SQLite, which is fine for a prototype; double-booking is prevented by transactions plus unique indexes, and on Postgres I'd use an exclusion constraint. Next I would add notifications and calendar invites, real authentication, and reminders for interviewers who haven't recorded a result. Thanks for watching."
+"Three honest trade-offs. First, rules like the two-hour change cut-off and a no-show not costing an attempt are prototype policy, listed as open questions in the write-up. Second, there's no real sign-in; the persona switcher stands in for it. The public demo's fictional records and clock are shared, so visitors can affect one another. Third, the deployed Next.js app runs on Vercel, using Drizzle and libSQL to access a hosted Turso database in Mumbai. Local development uses SQLite. Transactions and unique indexes guard against double-booking. Next I would add notifications and calendar invites, real authentication, and reminders for interviewers who haven't recorded a result. Thanks for watching."
 
 ## If you are short on time (3-minute cut)
 
@@ -69,5 +69,5 @@ Keep sections 1, 2, 3, 4, 5 and 7. Drop the team overview and the before/after p
 ## Things to say honestly if asked
 
 - I built this with an AI coding assistant (Claude Code) and directed the product decisions, state model, policies and review. Say so plainly rather than implying every line was typed by hand.
-- The app is not deployed; it runs locally from the repository.
+- The app is deployed on Vercel with hosted Turso; it can also run locally using SQLite.
 - The policies are my assumptions, not NIAT's rules.

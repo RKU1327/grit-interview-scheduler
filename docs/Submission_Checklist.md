@@ -1,8 +1,10 @@
 # Submission checklist
 
-NIAT GRIT · AI Product Engineer assignment, Round 1 · Rahul Upadhyay · deadline 14 November 2026.
+NIAT GRIT · AI Product Engineer assignment, Round 1 · Rahul Upadhyay. The original brief says “Submit before 14 Nov”; it does not specify a year or time zone.
 
 Status as of 14 November 2026. "Done" means built and verified as described; anything not done says so.
+
+The locally available original assignment was reviewed against the deliverables below. It requests the journey, assumptions and data model in at most two pages; a working prototype; three exact messages; before-and-after screens; and a Loom recording. The core booking, availability, outcome, reporting and malpractice flows are represented in the implementation and documented tests. The form itself requires sign-in and its fields could not be inspected in the available browser session.
 
 ## Required deliverables
 
@@ -58,6 +60,8 @@ Status as of 14 November 2026. "Done" means built and verified as described; any
 
 ## Known limitations
 
+- **Production verification outstanding.** Hosted foreign-key enforcement, hosted schema, token revocation and the deployed revision need direct Turso/Vercel account verification. The schema declares foreign keys, but the hosted connection does not explicitly enable them; do not assume enforcement from the local SQLite setting.
+- **Dependency audit (14 November 2026).** npm reported 2 low and 14 moderate findings. The underlying advisories cover `deepmerge` 4.3.1 (prototype poisoning, GHSA-gcqx-w48m-w2h4), `minimatch` 10.2.6 (glob denial of service, GHSA-g3hv-75wg-m249), and development-only `esbuild` 0.18.20 (development-server exposure, GHSA-67mh-4wv8-2f99). The lockfile includes the first two through the `shadcn` CLI dependency chain and the latter through `drizzle-kit`; npm also counts affected dependants. No forced major-version changes were made. Review updates before using the tooling with untrusted inputs.
 - **No real authentication.** A demo persona cookie selects who you act as. Server actions check role and ownership, but anyone can switch persona. This is intended for evaluation only.
 - **Shared demo.** All evaluators use the same fictional records and demo clock. One person's changes or reset affect others; no visitor has isolated state.
 - **Policies are assumptions.** Change cut-off, reschedule limit, retake wait, fail needing a team grant, and no-shows not costing an attempt are prototype decisions, listed in the write-up and in `src/domain/policy.ts`. They are not NIAT rules.
@@ -73,7 +77,7 @@ Status as of 14 November 2026. "Done" means built and verified as described; any
 
 ## Still to do before submitting
 
-1. Record the Loom (3–5 minutes) using `docs/Loom_Walkthrough.md` and add the link to this file and to the submission form.
-2. Skim the write-up PDF once and adjust any assumption you would phrase differently.
-3. Optional: run `npm run package` to produce `submission/grit-interview-scheduler.zip` if a ZIP upload is requested.
-4. Submit the guided-demo link, repository link, PDF and Loom link before the deadline.
+1. Record the Loom (3–5 minutes) using `docs/Loom_Walkthrough.md` and provide its link in the submission form.
+2. Sign in to the submission form and confirm its required fields and whether the PDF needs a public sharing link. The form requires Google sign-in; its fields were not independently visible during this review.
+3. Complete the outstanding production security and deployment checks. Authorized Turso/Vercel access was unavailable during this review.
+4. The ZIP is optional and generated from the committed tree with `npm run package`; do not use an older archive. Submit only the artifacts requested by the form.

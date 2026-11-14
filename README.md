@@ -27,7 +27,7 @@ The demo data and demo clock are shared by everyone using the same database. A r
 
 ### Turso and Vercel
 
-The app uses async Drizzle/libSQL for both local SQLite and hosted Turso. To initialize a new hosted database, set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in your shell and run `npm run db:turso-setup`. This applies the checked-in migrations and seeds only a completely empty database; it never resets an existing database. Configure the same variables as server-only production environment variables on Vercel. Do not commit them or use `NEXT_PUBLIC_` prefixes. A hosted runtime never migrates or seeds on startup. Preview deployments should use a separate database and token.
+Production runs Next.js on Vercel → Drizzle/libSQL → a hosted Turso database in Mumbai. Local development uses SQLite through the same async Drizzle/libSQL interface. To initialize a new hosted database, set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in your shell and run `npm run db:turso-setup`. This applies the checked-in migrations and seeds only a completely empty database; it never resets an existing database. Configure the same variables as server-only production environment variables on Vercel. Do not commit them or use `NEXT_PUBLIC_` prefixes. A hosted runtime never migrates or seeds on startup. Preview deployments should use a separate database and token.
 
 The production demo is a shared, fictional prototype: visitors can change each other's records and clock, and an explicit reset affects everyone. The persona switcher is not authentication. Seeded availability covers the days immediately after initialization or reset; use the guided reset to refresh those dates.
 
@@ -72,7 +72,7 @@ Seeded students are named after the state they demonstrate:
 | Pia Noshow | No-show, needs to re-book |
 | Omar Earlystage | One skill cleared |
 
-Seed dates are relative to the moment you seed, so "tomorrow" is always tomorrow.
+Seed dates are relative to the moment you seed or reset; descriptions such as "tomorrow" can become stale as time passes.
 
 **Demo clock.** A result cannot be recorded before an interview starts. So that you can book a slot and then record its result in one sitting, the interview page has a "Demo: jump clock to interview start" button. The shifted time is shown in the top bar; "Back to real time" and "Reset demo data" are on the Guided demo page.
 
@@ -229,7 +229,6 @@ Implemented behaviour is described above. Not built:
 - Notifications, calendar invites and a meeting link. Messages are in-app only.
 - Recurring availability rules; interviewers add dated windows.
 - Badge tier ordering and Miles. Eligibility is "all required skills cleared".
-- Hosted deployment. SQLite on a local file suits a prototype; a hosted version would move to Postgres.
 - Reversing a nullification, and bulk team actions.
 
 ## Credits
