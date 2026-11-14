@@ -30,7 +30,7 @@ Status as of 14 November 2026. "Done" means built and verified as described; any
 | `npm run typecheck` (TypeScript strict) | Passes |
 | `npm test` | 70 unit and integration tests, including a two-process booking race and libSQL initialization/reset checks |
 | `npm run build` | Production build succeeds, 19 routes |
-| `npm run test:e2e` | 10 Playwright tests passed against the migrated local production build. A later rerun experienced a reset timeout on the local Windows machine; the hosted booking and outcome workflows were verified separately. |
+| Playwright end-to-end | 10 tests passed against the migrated local production build. The final run allowed 120 seconds per test on the slow Windows machine; assertions were unchanged. |
 | Seeded fixtures match dashboard numbers | Asserted in an integration test and an e2e test |
 | Browser check | Every main page loaded in Chromium with no console errors (e2e test); desktop and 390 px mobile screenshots reviewed; no horizontal overflow on mobile (e2e test) |
 | Write-up page count | 2 pages, verified programmatically with pdf-lib |

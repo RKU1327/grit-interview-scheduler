@@ -196,6 +196,9 @@ test("workflow 5: reschedule then cancel keeps history and frees the slot", asyn
   await page.goto("/student/badges/full-stack-web-novice");
   await page.getByTestId("reschedule-link").click();
   await expect(page.getByRole("heading", { name: "Reschedule your interview" })).toBeVisible();
+  // Keep the replacement outside the two-hour cancellation cutoff at any
+  // time of day, so the following cancellation exercises the intended path.
+  await page.getByTestId(`day-${istDay(2)}`).click();
   const moved = await bookFirstSlot(page);
   await expect(page.getByText("Interview rescheduled.")).toBeVisible();
   await expect(page.getByTestId("attempt-1")).toContainText("Rescheduled");
@@ -219,6 +222,7 @@ test("workflow 5: reschedule then cancel keeps history and frees the slot", asyn
 
   // The released slot is bookable again.
   await page.getByTestId("msg-rebook").getByTestId("cta-book").click();
+  await page.getByTestId(`day-${istDay(2)}`).click();
   await expect(page.locator(`[data-testid="slot"][data-start="${moved.start}"][data-interviewer="${moved.interviewer}"]`)).toBeVisible();
 
   await actAs(page, "team");
